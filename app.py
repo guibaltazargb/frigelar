@@ -1,609 +1,539 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime
+import base64
+import time
+import os
 import dados as db
+import io
 
-# ── Configuração da página ─────────────────────────────────────────────────────
-st.set_page_config(
-    page_title="Programa Essência",
-    page_icon="💡",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+# ── CONFIGURAÇÃO DE PÁGINA MASTER ──────────────────────────────────────────────
+st.set_page_config(page_title="Programa Essência", page_icon="💡", layout="wide", initial_sidebar_state="expanded")
 
-# ── CSS ────────────────────────────────────────────────────────────────────────
+def obter_bg_base64(caminho_imagem):
+    if os.path.exists(caminho_imagem):
+        with open(caminho_imagem, "rb") as image_file: return base64.b64encode(image_file.read()).decode()
+    return ""
+
+bg_base64 = obter_bg_base64("image_7e68ea.jpg")
+
+# ── CSS APLICATIVO ──────────────────────────────────────────────────
 st.markdown("""
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&display=swap');
-  html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
-  .main { background: #f8fafc; }
-
-  /* Sidebar */
-  section[data-testid="stSidebar"] { background: linear-gradient(180deg,#0a1628,#0d2240); }
-  section[data-testid="stSidebar"] * { color: #cbd5e1 !important; }
-  section[data-testid="stSidebar"] .stRadio label { font-size:13px; padding:4px 0; }
-
-  /* KPIs */
-  .kpi-blue { background:#E6F1FB; border:1px solid #B5D4F4; border-radius:12px; padding:16px 18px; }
-  .kpi-green { background:#EAF3DE; border:1px solid #C0DD97; border-radius:12px; padding:16px 18px; }
-  .kpi-label { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:.05em; margin-bottom:4px; }
-  .kpi-blue .kpi-label { color:#185FA5; }
-  .kpi-green .kpi-label { color:#3B6D11; }
-  .kpi-val { font-size:26px; font-weight:600; }
-  .kpi-blue .kpi-val { color:#0D2240; }
-  .kpi-green .kpi-val { color:#1B3D06; }
-
-  /* Badges de nível */
-  .badge { font-size:11px; font-weight:700; padding:3px 10px; border-radius:20px; display:inline-block; }
-  .badge-n0 { background:#F5C6C6; color:#7B1A1A; }
-  .badge-n1 { background:#E6F1FB; color:#185FA5; }
-  .badge-n2 { background:#EAF3DE; color:#3B6D11; }
-  .badge-n3 { background:#FAEEDA; color:#854F0B; }
-  .badge-n4 { background:#E1F5EE; color:#0F6E56; }
-
-  /* Cards */
-  .card { background:#fff; border-radius:14px; border:.5px solid #e2e8f0;
-          padding:18px 20px; box-shadow:0 1px 3px rgba(0,0,0,.04); margin-bottom:12px; }
-
-  /* Comentário */
-  .comentario-box { background:#f8fafc; border-left:3px solid #185FA5;
-                    padding:10px 14px; border-radius:0 8px 8px 0;
-                    font-size:12px; color:#334155; white-space:pre-wrap; }
-
-  /* Título da página */
-  .page-title { font-size:22px; font-weight:600; color:#0D2240; margin-bottom:4px; }
-  .page-sub   { font-size:13px; color:#94a3b8; margin-bottom:20px; }
-
-  /* Alerta de complemento */
-  .aviso-complemento { background:#FAEEDA; border:1px solid #FAC775;
-                       border-radius:10px; padding:10px 14px; font-size:13px; color:#854F0B; }
-
-  /* Tabela customizada */
-  .stDataFrame { border-radius:12px; overflow:hidden; }
-
-  /* Botões */
-  .stButton > button { border-radius:9px; font-weight:600; font-size:13px; }
-  div[data-testid="stForm"] .stButton > button[kind="primaryFormSubmit"] {
-    background:#185FA5; color:#fff; border:none;
-  }
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+    html, body, [class*="css"] { font-family: 'Plus Jakarta Sans', sans-serif; }
+    .fade-in { animation: fadeIn 0.5s forwards; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    
+    /* ─── MENU LATERAL INTELIGENTE ─── */
+    section[data-testid="stSidebar"] div[role="radiogroup"] label > div:first-child { 
+        display: none !important; 
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label {
+        background-color: rgba(255, 255, 255, 0.05) !important; 
+        border-radius: 8px !important; 
+        padding: 12px 16px !important; 
+        border: 1px solid rgba(255, 255, 255, 0.1) !important; 
+        margin-bottom: 8px !important; 
+        width: 100% !important; 
+        display: flex !important;
+        align-items: center !important;
+        transition: all 0.2s ease-in-out !important;
+        cursor: pointer !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label p {
+        color: #ffffff !important;
+        font-size: 15px !important;
+        margin: 0 !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:hover { 
+        background-color: rgba(255, 255, 255, 0.1) !important; 
+    }
+    /* Estilo do botão SELECIONADO (Fundo Branco, Letra Azul) */
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) {
+        background-color: #ffffff !important; 
+        border-color: #ffffff !important; 
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1) !important;
+    }
+    section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p {
+        font-weight: 700 !important;
+        color: #185FA5 !important;
+    }
+    /* ──────────────────────────────── */
+    
+    section[data-testid="stSidebar"] { background-color: #0f172a !important; }
+    .stButton > button { background-color: #185FA5 !important; color: white !important; border-radius: 8px !important; font-weight: 600 !important; border: none !important; }
+    .stButton > button:hover { background-color: #104a85 !important; }
+    .kpi-container { background: #ffffff; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; text-align: center; }
+    .kpi-title { font-size: 13px; font-weight: 600; color: #64748b; text-transform: uppercase; }
+    .kpi-value { font-size: 26px; font-weight: 700; color: #0f172a; margin-top: 8px; }
+    .badge { font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 20px; display: inline-block; }
+    .badge-n0 { background: #FEE2E2; color: #991B1B; } .badge-n1 { background: #E0F2FE; color: #1E3A8A; }
+    .badge-n2 { background: #DCFCE7; color: #166534; } .badge-n3 { background: #FEF3C7; color: #92400E; }
+    .badge-n4 { background: #D1FAE5; color: #14532D; }
+    .comentario-box { background: #f8fafc; border-left: 4px solid #185FA5; padding: 12px; border-radius: 4px 8px 8px 4px; font-size: 13px; margin-top: 10px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ── Session state ──────────────────────────────────────────────────────────────
-if "usuario" not in st.session_state:
-    st.session_state.usuario = None
+# ── CSS DO LOGIN ─────────────────────────────────────────────────────
+if not st.session_state.get("usuario"):
+    st.markdown(f"""
+    <style>
+        .stApp {{ background-image: url("data:image/jpg;base64,{bg_base64}"); background-size: cover; background-position: center; background-attachment: fixed; }}
+        [data-testid="stForm"] {{ background: rgba(255, 255, 255, 0.95) !important; backdrop-filter: blur(15px) !important; padding: 40px; border-radius: 16px; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.5); max-width: 420px; margin: 0 auto; }}
+        
+        /* 🟢 CAIXAS DE TEXTO DESTACADAS E EFEITO AZUL AO CLICAR */
+        div[data-baseweb="input"] {{ 
+            position: relative !important; 
+            height: 44px !important; 
+            background-color: #ffffff !important; /* Fundo branco para destacar */
+            border: 1px solid #cbd5e1 !important; /* Borda cinza clara padrão */
+            border-radius: 8px !important;
+            transition: all 0.2s ease-in-out !important;
+        }}
+        div[data-baseweb="input"]:focus-within {{
+            border-color: #185FA5 !important; /* Borda fica azul Frigelar ao digitar */
+            box-shadow: 0 0 0 2px rgba(24, 95, 165, 0.2) !important; /* Brilho azul suave */
+        }}
+        div[data-baseweb="input"] input {{ 
+            padding-left: 42px !important; 
+            height: 100% !important; 
+            background-color: transparent !important; 
+        }}
+        
+        /* ÍCONES DO LOGIN */
+        div[data-baseweb="input"]:has(input[aria-label*="E-mail"])::before {{ 
+            content: ''; position: absolute !important; left: 14px !important; top: 50% !important; transform: translateY(-50%) !important;
+            width: 18px !important; height: 18px !important; background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z'%3E%3C/path%3E%3Cpolyline points='22,6 12,13 2,6'%3E%3C/polyline%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: center; pointer-events: none; margin-top: 0px !important;
+        }}
+        div[data-baseweb="input"]:has(input[type="password"])::before {{ 
+            content: ''; position: absolute !important; left: 14px !important; top: 50% !important; transform: translateY(-50%) !important;
+            width: 18px !important; height: 18px !important; background-image: url("data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2' ry='2'%3E%3C/rect%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: center; pointer-events: none; margin-top: 0px !important;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
+else:
+    st.markdown("""<style>[data-testid="stForm"] { background: #ffffff !important; padding: 30px; border-radius: 12px; border: 1px solid #e2e8f0; width: 100%; }</style>""", unsafe_allow_html=True)
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+if "usuario" not in st.session_state: st.session_state.usuario = None
+
 def brl(v):
-    try: return f"R$ {float(v):,.0f}".replace(",",".")
-    except: return "R$ 0"
+    try: return f"R$ {float(v):,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    except: return "R$ 0,00"
 
-def badge(nivel):
-    key = nivel[:2] if nivel else "N1"
-    cls = {"N0":"badge-n0","N1":"badge-n1","N2":"badge-n2","N3":"badge-n3","N4":"badge-n4"}.get(key,"badge-n1")
-    return f'<span class="badge {cls}">{nivel}</span>'
+def gerar_badge(nivel):
+    n = str(nivel)[:2]
+    classes = {"N0": "badge-n0", "N1": "badge-n1", "N2": "badge-n2", "N3": "badge-n3", "N4": "badge-n4"}
+    return f'<span class="badge {classes.get(n, "badge-n1")}">{nivel}</span>'
 
-def kpi(label, valor, tipo="blue"):
-    return f"""<div class="kpi-{tipo}">
-      <div class="kpi-label">{label}</div>
-      <div class="kpi-val">{valor}</div>
-    </div>"""
-
-def tem_campos_faltando(row):
-    obrigatorios = ["Descrição","Grupo Contábil","Conta Orçamento","Conta Contábil","Dono da Oportunidade"]
-    return any(str(row.get(c,"")).strip() == "" for c in obrigatorios)
-
-# ── TELA DE LOGIN ──────────────────────────────────────────────────────────────
+# ── TELA DE LOGIN ────────────────────────────────────────────────────────
 def tela_login():
-    col1, col2, col3 = st.columns([1,1.2,1])
+    st.markdown('<div class="fade-in">', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 1.2, 1])
     with col2:
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.markdown("""
-        <div style="text-align:center; margin-bottom:24px;">
-          <span style="font-size:32px; font-weight:700; color:#0D2240;">Essência</span>
-          <span style="font-size:32px; color:#3B6D11;">.</span><br>
-          <span style="font-size:13px; color:#94a3b8;">Programa de Redução de Custos</span>
-        </div>
-        """, unsafe_allow_html=True)
-        with st.form("form_login"):
-            login = st.text_input("Usuário", placeholder="Digite seu login")
-            submitted = st.form_submit_button("Entrar", use_container_width=True, type="primary")
-            if submitted:
-                if not login.strip():
-                    st.error("Digite seu login.")
-                else:
-                    usuario = db.autenticar(login.strip())
-                    if usuario:
-                        st.session_state.usuario = usuario
+        st.markdown("<br><br><br>", unsafe_allow_html=True)
+        with st.form("login_form"):
+            st.markdown("<h2 style='text-align: center; color: #0f172a;'>Bem-vindo(a)</h2>", unsafe_allow_html=True)
+            
+            # 🟢 ÍCONES ATUALIZADOS PARA O PADRÃO GOOGLE MATERIAL
+            login = st.text_input("Usuário (Login)", placeholder="ex: usuário", icon=":material/person:")
+            senha = st.text_input("Senha", type="password", placeholder="Digite sua senha", icon=":material/lock:")
+            
+            if st.form_submit_button("Entrar", width="stretch", type="primary"):
+                if login.strip() and senha.strip():
+                    user_info = db.autenticar(login.strip(), senha.strip()) 
+                    if user_info:
+                        st.session_state.usuario = user_info
                         st.rerun()
-                    else:
-                        st.error("Usuário não encontrado. Verifique com a Controladoria.")
-        st.caption("Acesso controlado — apenas usuários cadastrados")
+                    else: st.error("Usuário ou senha incorretos (ou inativo).")
+                else: st.warning("Preencha login e senha.")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# ── SIDEBAR ────────────────────────────────────────────────────────────────────
-def sidebar():
+# ── INTERFACE NAVEGAÇÃO ────────────────────────────────────────────────
+def painel_principal():
     u = st.session_state.usuario
+    hora = datetime.now().hour
+    saudacao = "Bom dia" if hora < 12 else "Boa tarde" if hora < 18 else "Boa noite"
+    
     with st.sidebar:
         st.markdown(f"""
-        <div style="padding:8px 0 16px;">
-          <div style="font-size:20px;font-weight:700;color:#fff;">Essência<span style="color:#639922;">.</span></div>
-          <div style="font-size:10px;color:#475569;margin-top:2px;">Programa de Redução de Custos</div>
-        </div>
-        <div style="background:rgba(255,255,255,.06);border-radius:10px;padding:10px 12px;margin-bottom:16px;">
-          <div style="font-size:13px;font-weight:600;color:#fff;">{u['nome']}</div>
-          <div style="font-size:11px;color:#64748b;margin-top:2px;">{u['perfil'].upper()}</div>
+        <div style="padding: 10px 0px 20px 0px;">
+            <span style="font-size: 18px; font-weight: 700; color: #ffffff;">{saudacao}, {u['nome'].split()[0]}!</span>
+            <p style="font-size: 12px; color: #94a3b8; margin-top: 4px;">Perfil: {u['perfil'].upper()}</p>
         </div>
         """, unsafe_allow_html=True)
+        
+        # MENU BASEADO NO PERFIL
+        opcoes_menu = []
+        if u["perfil"] in ("craque", "lider", "adm"):
+            opcoes_menu.extend(["Cadastro de Oportunidade", "Minhas Oportunidades"])
+        
+        if u["perfil"] in ("lider", "adm", "diretoria"):
+            opcoes_menu.append("Painel Executivo")
+            
+        if u["perfil"] == "adm":
+            opcoes_menu.extend(["Comitê de Despesas (N1)", "Validação Controladoria", "Painel de Acessos"])
+            
+        pagina = st.radio("Navegação", opcoes_menu, label_visibility="collapsed")
+        
+        st.markdown("<br><hr style='border-color: rgba(255,255,255,0.1);'>", unsafe_allow_html=True)
+        if st.button("Sair do Sistema", use_container_width=True):
+            st.session_state.usuario = None; st.rerun()
 
-        perfil = u["perfil"]
-        opcoes = ["📋 Cadastro de Oportunidade", "📊 Tabela de Oportunidades",
-                  "📈 Dashboard", "📉 Evolução Macro",
-                  "⚠️ Ideias em Atraso", "📑 Relatório Gerencial"]
+    st.markdown('<div class="fade-in">', unsafe_allow_html=True)
+    if pagina == "Cadastro de Oportunidade": pagina_cadastro()
+    elif pagina == "Minhas Oportunidades": pagina_tabela()
+    elif pagina == "Painel Executivo": pagina_painel_integrado()
+    elif pagina == "Comitê de Despesas (N1)": pagina_comite()
+    elif pagina == "Validação Controladoria": pagina_controladoria()
+    elif pagina == "Painel de Acessos": pagina_admin()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-        # Craque não vê relatório gerencial nem evolução macro completa
-        if perfil == "craque":
-            opcoes = ["📋 Cadastro de Oportunidade", "📊 Tabela de Oportunidades", "📈 Dashboard"]
-
-        pagina = st.radio("", opcoes, label_visibility="collapsed")
-
-        st.markdown("---")
-        if st.button("Sair", use_container_width=True):
-            st.session_state.usuario = None
-            st.rerun()
-
-    return pagina
-
-# ── FILTROS de visibilidade ────────────────────────────────────────────────────
-def filtrar_por_perfil(df: pd.DataFrame, usuario: dict) -> pd.DataFrame:
-    perfil = usuario.get("perfil","")
-    if perfil == "craque":
-        return df[df["Craque"].str.lower() == usuario["nome"].lower()]
-    elif perfil == "lider":
-        return df[df["Frente de Negócio"].str.lower() == usuario.get("frente","").lower()]
-    return df  # adm vê tudo
-
-# ── PÁGINA: CADASTRO ───────────────────────────────────────────────────────────
+# ── ABA: CADASTRO ─────────────────────────────────────────────
 def pagina_cadastro():
     u = st.session_state.usuario
-    st.markdown('<div class="page-title">📋 Cadastro de Oportunidade</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Registre uma nova ideia de redução de custos</div>', unsafe_allow_html=True)
-
-    pc = db.ler_plano_contas()
-    grupos = sorted(pc["Grupo"].unique().tolist())
-
-    with st.form("form_cadastro", clear_on_submit=True):
-        st.markdown("**Identificação**")
+    st.markdown('<h2 style="color: #0f172a;">Cadastro de Oportunidade</h2>', unsafe_allow_html=True)
+    df_pc = db.ler_plano_contas()
+    
+    with st.container(border=True):
+        st.markdown("##### 1. Detalhes do Escopo")
+        
+        titulo = st.text_input("Título da Melhoria *", max_chars=50, help="Dê um nome curto e objetivo para a sua ideia.")
+        descricao = st.text_area("Descrição da Melhoria *", max_chars=600, help="Faça uma descrição breve e clara da oportunidade identificada na sua área.")
+        
         col1, col2 = st.columns(2)
-        with col1:
-            descricao = st.text_area("Descrição *", max_chars=300,
-                help="Identificador da ideia — seja sucinto mas claro.")
-        with col2:
-            dono = st.text_input("Dono da Oportunidade *")
+        with col1: 
+            dono = st.text_input("Dono da Oportunidade *", help="Quem será o responsável técnico ou focal por essa ideia?")
+            area_sel = st.selectbox("Área *", [""] + db.ler_areas())
+        with col2: 
+            cc_dono = st.selectbox("Centro de Custo (CC Dono) *", ["", "CC-001 (Operações)", "CC-002 (Logística)"])
+            
+        st.markdown("<br>##### 2. Classificação Contábil", unsafe_allow_html=True)
+        col_g2, col_g3 = st.columns(2)
+        with col_g2:
+            contas_orc_filtradas = sorted(df_pc["ContaOrc"].unique().tolist())
+            conta_orc_sel = st.selectbox("Conta Orçamento *", [""] + contas_orc_filtradas)
+        with col_g3:
+            contas_cont_filtradas = df_pc[df_pc["ContaOrc"] == conta_orc_sel] if conta_orc_sel else pd.DataFrame()
+            opcoes_conta_cont = [f"{row['Código']} - {row['ContaCont']}" for _, row in contas_cont_filtradas.iterrows()]
+            conta_cont_sel = st.selectbox("Conta Contábil / Código *", [""] + opcoes_conta_cont)
 
-        st.markdown("**Classificação Contábil**")
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            grupo = st.selectbox("Grupo Contábil *", [""] + grupos)
-        with col2:
-            contas_orc = [""] + sorted(pc[pc["Grupo"]==grupo]["ContaOrc"].unique().tolist()) if grupo else [""]
-            conta_orc = st.selectbox("Conta Orçamento *", contas_orc)
-        with col3:
-            contas_cont = [""] + sorted(pc[(pc["Grupo"]==grupo)&(pc["ContaOrc"]==conta_orc)]["ContaCont"].unique().tolist()) if conta_orc else [""]
-            conta_cont = st.selectbox("Conta Contábil *", contas_cont)
+        frente_detectada = ""
+        if conta_cont_sel:
+            codigo_selecionado = conta_cont_sel.split(" - ")[0]
+            try: frente_detectada = df_pc[df_pc["Código"] == codigo_selecionado].iloc[0]["Frente"]
+            except: pass
+            st.info(f"Frente de Negócio atrelada automaticamente: **{frente_detectada}**")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            cc_dono = st.text_input("CC Dono da Oportunidade *")
-        with col2:
-            st.text_input("Craque", value=u["nome"], disabled=True)
-
-        st.markdown("**Estimativa de Redução 2026 (opcional)**")
-        meses = db.MESES
-        cols = st.columns(6)
-        vals_mes = {}
-        for idx, m in enumerate(meses):
-            with cols[idx % 6]:
-                vals_mes[m] = st.number_input(m, min_value=0, value=0, step=1000, key=f"m_{m}")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            total_2027 = st.number_input("Estimativa Total 2027 (opcional)", min_value=0, value=0, step=1000)
-        with col2:
-            total_2028 = st.number_input("Estimativa Total 2028 (opcional)", min_value=0, value=0, step=1000)
-
-        total_2026 = sum(vals_mes.values())
-        st.info(f"Total 2026 calculado: {brl(total_2026)}")
-
-        submitted = st.form_submit_button("💾 Cadastrar Oportunidade", type="primary", use_container_width=True)
-        if submitted:
-            erros = []
-            if not descricao.strip(): erros.append("Descrição obrigatória.")
-            if not dono.strip():      erros.append("Dono da Oportunidade obrigatório.")
-            if not grupo:             erros.append("Grupo Contábil obrigatório.")
-            if not conta_orc:         erros.append("Conta Orçamento obrigatória.")
-            if not conta_cont:        erros.append("Conta Contábil obrigatória.")
-            if not cc_dono.strip():   erros.append("CC Dono obrigatório.")
-            if erros:
-                for e in erros: st.error(e)
+        st.markdown("<br>##### 3. Planejamento Financeiro Inicial", unsafe_allow_html=True)
+        ganho_2026 = st.number_input("Ganho Estimado 2026 (R$) *", min_value=0.0, step=100.0, help="Insira o valor total estimado de savings para o ano de 2026.", key="ganho_2026_cadastro")
+                
+        if st.button("Salvar Registro (N1)", use_container_width=True, type="primary", key="btn_salvar_n1"):
+            if not (titulo.strip() and descricao.strip() and dono.strip() and cc_dono and conta_orc_sel and conta_cont_sel and area_sel):
+                st.error("Preencha todos os campos obrigatórios (*).")
             else:
-                dados_cad = {
-                    "descricao": descricao, "dono": dono,
-                    "grupo": grupo, "conta_orc": conta_orc, "conta_cont": conta_cont,
-                    "cc_dono": cc_dono, "total_2027": total_2027, "total_2028": total_2028,
-                }
-                for m in meses:
-                    dados_cad[f"est_{m.lower()}"] = vals_mes[m]
-                novo_id = db.cadastrar_oportunidade(dados_cad, u)
-                st.success(f"✅ Oportunidade #{novo_id} cadastrada com sucesso!")
+                dados_op = {"titulo": titulo, "descricao": descricao, "dono": dono, "cc_dono": cc_dono, "conta_orc": conta_orc_sel, "conta_cont": conta_cont_sel.split(" - ")[-1], "area_ideia": area_sel, "frente_automatica": frente_detectada, "ganho_2026": ganho_2026}
+                db.cadastrar_oportunidade(dados_op, u)
+                st.success("Oportunidade enviada para aprovação do Comitê (N1)!")
+                time.sleep(1.5); st.rerun()
 
-# ── PÁGINA: TABELA ─────────────────────────────────────────────────────────────
+# ── ABA: TABELA (CRAQUE E LÍDER) ─────────────────────────────────────────────
 def pagina_tabela():
     u = st.session_state.usuario
-    st.markdown('<div class="page-title">📊 Tabela de Oportunidades</div>', unsafe_allow_html=True)
+    st.markdown('<h2 style="color: #0f172a;">Minhas Oportunidades</h2>', unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: st.info("Nenhuma oportunidade."); return
 
-    df = filtrar_por_perfil(db.ler_oportunidades(), u)
+    if u["perfil"] == "craque": df = df[df["Craque"].str.lower() == u["nome"].lower()]
+    elif u["perfil"] == "lider": df = df[df["Frente de Negócio"].str.lower() == u["frente"].lower()]
 
-    # Avisos de complemento
-    faltando = df[df.apply(tem_campos_faltando, axis=1)]
-    if not faltando.empty:
-        st.markdown(f'<div class="aviso-complemento">⚠️ <b>{len(faltando)} ideia(s)</b> com cadastro incompleto — campos obrigatórios faltando.</div>', unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
+    for _, row in df.iterrows():
+        # Usa o novo Título na barra de expansão (se não houver, usa a descrição)
+        titulo_display = row.get("Título", "") if row.get("Título", "") else row['Descrição'][:40] + "..."
+        with st.expander(f"#{row['ID']} — {titulo_display} | {brl(row.get('Total Estimado 2026', 0))}"):
+            st.markdown(f"{gerar_badge(row['Nível'])}", unsafe_allow_html=True)
+            
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.write(f"**Craque:** {row['Craque']}")
+                st.write(f"**Dono:** {row['Dono da Oportunidade']} ({row['CC Dono']})")
+                st.write(f"**Frente / Área:** {row['Frente de Negócio']} / {row['Área']}")
+            with c2:
+                st.write(f"**Conta Orç.:** {row['Conta Orçamento']}")
+                st.write(f"**Conta Cont.:** {row['Conta Contábil']}")
+            with c3:
+                st.write(f"**Data N1:** {row['Data Cadastro (N1)']}")
+                st.write(f"**Total 26:** {brl(row.get('Total Estimado 2026', 0))}")
 
-    # Filtros
-    with st.expander("🔍 Filtros", expanded=False):
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            f_nivel = st.multiselect("Nível", options=df["Nível"].unique().tolist())
-        with col2:
-            f_frente = st.multiselect("Frente", options=df["Frente de Negócio"].unique().tolist())
-        with col3:
-            f_area = st.multiselect("Área", options=df["Área"].unique().tolist())
-        with col4:
-            f_craque = st.multiselect("Craque", options=df["Craque"].unique().tolist())
-        col5, col6 = st.columns(2)
-        with col5:
-            f_grupo = st.multiselect("Grupo Contábil", options=df["Grupo Contábil"].unique().tolist())
-        with col6:
-            f_dono = st.multiselect("Dono da Oportunidade", options=df["Dono da Oportunidade"].unique().tolist())
+            if "N1" not in row["Nível"]:
+                coment = str(row.get("Comentário da Semana", "")).strip()
+                if coment: st.markdown(f'<div class="comentario-box"><strong>Últimas Atualizações:</strong><br>{coment}</div>', unsafe_allow_html=True)
 
-    # Aplica filtros
-    df_f = df.copy()
-    if f_nivel:   df_f = df_f[df_f["Nível"].isin(f_nivel)]
-    if f_frente:  df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
-    if f_area:    df_f = df_f[df_f["Área"].isin(f_area)]
-    if f_craque:  df_f = df_f[df_f["Craque"].isin(f_craque)]
-    if f_grupo:   df_f = df_f[df_f["Grupo Contábil"].isin(f_grupo)]
-    if f_dono:    df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
+            st.divider()
 
-    st.markdown(f"**{len(df_f)} oportunidade(s) encontrada(s)**")
+            if u["perfil"] in ("lider", "adm"):
+                tab_acao, tab_fin = st.tabs(["Ações Líder", "Detalhamento Financeiro (N2+)"])
+                
+                with tab_acao:
+                    if "N2" not in row["Nível"] and "N3" not in row["Nível"]:
+                        st.info("Ações de execução liberadas a partir do Nível N2.")
+                    
+                    if "N2" in row["Nível"] or "N3" in row["Nível"]:
+                        with st.form(f"acao_{row['ID']}"):
+                            novo_coment = st.text_area("Adicionar Comentário:")
+                            sub = st.form_submit_button("Salvar Comentário")
+                            if sub and novo_coment.strip():
+                                db.adicionar_comentario(row['ID'], novo_coment, u); st.success("Salvo!"); st.rerun()
+                                
+                    if "N2" in row["Nível"] and st.button("Iniciar Execução (Avançar para N3)", key=f"n3_{row['ID']}"):
+                        db.movimentar_nivel(row['ID'], "N3 - Execução", u); st.rerun()
+                        
+                    if "N3" in row["Nível"] and not row.get("Submetido Controladoria", False):
+                        if st.button("Submeter para Controladoria (Avaliar N4)", key=f"sub_{row['ID']}", type="primary"):
+                            db.submeter_para_controladoria(row['ID']); st.success("Enviado ao ADM!"); st.rerun()
+                    elif "N3" in row["Nível"] and row.get("Submetido Controladoria", False):
+                        st.warning("⏳ Ideia aguardando validação da Controladoria para virar N4.")
 
-    # Exibe cada linha como card expandível
-    for _, row in df_f.iterrows():
-        nivel_key = str(row["Nível"])[:2]
-        cor_borda = {"N0":"#F5C6C6","N1":"#B5D4F4","N2":"#C0DD97","N3":"#FAC775","N4":"#9FE1CB"}.get(nivel_key,"#e2e8f0")
+                with tab_fin:
+                    if "N1" in row["Nível"]: st.info("Projeção de 12 meses exigida a partir da etapa N2.")
+                    else:
+                        with st.form(f"fin_{row['ID']}"):
+                            st.write("Preencha a projeção mensal de savings (Próximos 12 meses):")
+                            mes_inicio = st.selectbox("Mês de Início", ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"], index=0)
+                            cols_m = st.columns(6); vals_m = {}
+                            
+                            for i in range(1, 13):
+                                with cols_m[(i-1)%6]: 
+                                    valor_banco = row.get(f"Mês {i}", 0)
+                                    valor_seguro = 0.0 if valor_banco == "" else float(valor_banco)
+                                    vals_m[f"Mês {i}"] = st.number_input(f"Mês {i}", value=valor_seguro, step=100.0)
+                                    
+                            if st.form_submit_button("Salvar Financeiro"):
+                                campos = {"Mês Início": mes_inicio}
+                                for k, v in vals_m.items(): campos[k] = v
+                                db.atualizar_oportunidade(row['ID'], campos, u); st.success("Atualizado!"); st.rerun()
 
-        with st.expander(f"#{row['ID']} — {row['Descrição'][:60]}  |  {row['Nível']}  |  {brl(row['Total 2026'])}/ano"):
-            col1, col2, col3 = st.columns(3)
+# ── NOVAS ABAS DE GOVERNANÇA (ADM) ──────────────────────────────────────────
+def pagina_comite():
+    st.markdown('<h2 style="color: #0f172a;">Comitê de Despesas (Aprovação N1)</h2>', unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: return
+    df_n1 = df[df["Nível"] == "N1 - Ideia"]
+    
+    if df_n1.empty: st.success("Nenhuma ideia aguardando aprovação no momento."); return
+    
+    for _, row in df_n1.iterrows():
+        with st.container(border=True):
+            titulo_display = row.get("Título", "") if row.get("Título", "") else row['Descrição']
+            st.markdown(f"**#{row['ID']} - {titulo_display}**")
+            st.write(f"Craque: {row['Craque']} | Área: {row['Área']} | Ganho 2026: {brl(row.get('Total Estimado 2026',0))}")
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("✅ Aprovar (Mover p/ N2)", key=f"apr_{row['ID']}", use_container_width=True):
+                    db.movimentar_nivel(row['ID'], "N2 - Planejamento", st.session_state.usuario); st.rerun()
+            with c2:
+                if st.button("❌ Rejeitar (Mover p/ N0)", key=f"rej_{row['ID']}", use_container_width=True):
+                    db.movimentar_nivel(row['ID'], "N0 - Cancelada", st.session_state.usuario); st.rerun()
+
+def pagina_controladoria():
+    st.markdown('<h2 style="color: #0f172a;">Validação Controladoria (Aprovação N4)</h2>', unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: return
+    
+    df_n3_submetido = df[(df["Nível"] == "N3 - Execução") & (df["Submetido Controladoria"] == True)]
+    
+    if df_n3_submetido.empty: st.success("Nenhuma ideia aguardando validação de implementação."); return
+    
+    for _, row in df_n3_submetido.iterrows():
+        with st.container(border=True):
+            titulo_display = row.get("Título", "") if row.get("Título", "") else row['Descrição']
+            st.markdown(f"**#{row['ID']} - {titulo_display}**")
+            st.write(f"Líder Front: {row['Frente de Negócio']} | {brl(row.get('Total Estimado 2026',0))}")
+            if st.button("🏆 Validar Savings e Marcar como Implementado (N4)", key=f"val_{row['ID']}", type="primary"):
+                db.movimentar_nivel(row['ID'], "N4 - Implementado", st.session_state.usuario); st.rerun()
+
+# ──# ── PAINEL EXECUTIVO UNIFICADO ──────────────────────────────────────────────
+def pagina_painel_integrado():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color: #0f172a;">Painel Executivo</h2>', unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: st.info("Sem dados para análise."); return
+    
+    # 🟢 A SOLUÇÃO DA MATEMÁTICA: Arranca os espaços invisíveis do Excel que quebram o código
+    df["Nível"] = df["Nível"].astype(str).str.strip()
+    df["Frente de Negócio"] = df["Frente de Negócio"].astype(str).str.strip()
+    df["Total Estimado 2026"] = pd.to_numeric(df["Total Estimado 2026"], errors='coerce').fillna(0.0)
+    
+    if u["perfil"] == "lider": df = df[df["Frente de Negócio"].str.lower() == u["frente"].lower()]
+    df_ativas = df[df["Nível"] != "N0 - Cancelada"]
+    
+    tab_dash, tab_evo, tab_gerencial, tab_excel = st.tabs(["📊 Dashboard Geral", "📈 Evolução Macro", "📑 Relatório Gerencial", "📥 Base Excel"])
+    
+    with tab_dash:
+        c1, c2, c3, c4 = st.columns(4)
+        c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Ideias Ativas</div><div class="kpi-value">{len(df_ativas)}</div></div>', unsafe_allow_html=True)
+        c2.markdown(f'<div class="kpi-container"><div class="kpi-title">Potencial 2026</div><div class="kpi-value" style="color: #16a34a;">{brl(df_ativas["Total Estimado 2026"].sum())}</div></div>', unsafe_allow_html=True)
+        c3.markdown(f'<div class="kpi-container"><div class="kpi-title">Implementadas</div><div class="kpi-value">{len(df[df["Nível"] == "N4 - Implementado"])}</div></div>', unsafe_allow_html=True)
+        c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Canceladas</div><div class="kpi-value" style="color: #991B1B;">{len(df[df["Nível"] == "N0 - Cancelada"])}</div></div>', unsafe_allow_html=True)
+        g1, g2 = st.columns(2)
+        with g1: st.write("Distribuição por Nível"); st.bar_chart(df["Nível"].value_counts(), color="#185FA5")
+        with g2: st.write("Potencial por Frente"); st.bar_chart(df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum(), color="#16a34a")
+
+    with tab_evo:
+        df_ativas["Semana"] = df_ativas["Data Cadastro (N1)"].apply(lambda x: "Semana " + str(x.split("/")[1]) if pd.notna(x) else "Desconhecida")
+        evolucao = df_ativas.groupby(["Semana", "Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
+        st.bar_chart(evolucao)
+
+    with tab_gerencial:
+        # 🟢 PUXA DO BANCO DE DADOS EM VEZ DE USAR FIXO
+        orc_data = db.ler_orcamento()
+        
+        # 🟢 SE FOR ADM, MOSTRA O PAINEL DE EDIÇÃO
+        if u["perfil"] == "adm":
+            with st.expander("⚙️ Ajustar Metas Orçadas (Apenas ADM)"):
+                with st.form("form_orc"):
+                    st.write("Atualize os valores de meta para cada frente:")
+                    c1, c2, c3, c4 = st.columns(4)
+                    o_op = c1.number_input("Operações", value=float(orc_data.get("Operações", 1500000.0)), step=10000.0)
+                    o_sup = c2.number_input("Supply", value=float(orc_data.get("Supply", 800000.0)), step=10000.0)
+                    o_fin = c3.number_input("Financeiro", value=float(orc_data.get("Financeiro", 500000.0)), step=10000.0)
+                    o_corp = c4.number_input("Corporativo", value=float(orc_data.get("Corporativo", 300000.0)), step=10000.0)
+                    
+                    if st.form_submit_button("Salvar Novos Orçamentos", type="primary"):
+                        db.salvar_orcamento({"Operações": o_op, "Supply": o_sup, "Financeiro": o_fin, "Corporativo": o_corp})
+                        st.success("Metas atualizadas no sistema!")
+                        time.sleep(1); st.rerun()
+
+        # MONTA A TABELA COM OS DADOS LIMPOS
+        relatorio = []
+        for f in ["Operações", "Supply", "Financeiro", "Corporativo"]:
+            realizado = df[(df["Frente de Negócio"] == f) & (df["Nível"] == "N4 - Implementado")]["Total Estimado 2026"].sum()
+            orc = orc_data.get(f, 0.0)
+            relatorio.append({"Frente": f, "Orçado": brl(orc), "Realizado N4": brl(realizado), "Atingimento": f"{(realizado/orc*100) if orc>0 else 0:.1f}%"})
+        
+        # Tentando deixar mais bonito
+        st.dataframe(pd.DataFrame(relatorio), use_container_width=True, hide_index=True)
+
+    with tab_excel:
+        st.write("Base de dados consolidada com aberturas trimestrais (Pronta para exportação).")
+        df_ex = pd.DataFrame()
+        for m in range(1, 13):
+            if f"Mês {m}" not in df.columns: df[f"Mês {m}"] = 0.0
+            else: df[f"Mês {m}"] = pd.to_numeric(df[f"Mês {m}"], errors="coerce").fillna(0.0)
+
+        df_ex["Grupo Contábil"] = df.get("Frente de Negócio", "")
+        df_ex["Conta Orçamento"] = df.get("Conta Orçamento", "")
+        df_ex["Desc. Conta Contábil"] = df.get("Conta Contábil", "")
+        df_ex["Descrição da Oportunidade"] = df.get("Descrição", "")
+        df_ex["1° TRI"] = df["Mês 1"] + df["Mês 2"] + df["Mês 3"]
+        df_ex["2° TRI"] = df["Mês 4"] + df["Mês 5"] + df["Mês 6"]
+        df_ex["3° TRI"] = df["Mês 7"] + df["Mês 8"] + df["Mês 9"]
+        df_ex["4° TRI"] = df["Mês 10"] + df["Mês 11"] + df["Mês 12"]
+        df_ex["Total"] = df["Total Estimado 2026"]
+        df_ex["Status"] = df.get("Nível", "")
+        df_ex["Evolução"] = df.get("Nível", "") 
+        df_ex["Dono da Oportunidade"] = df.get("Dono da Oportunidade", "")
+        df_ex["Centro de Custo do Dono da Oportunidade"] = df.get("CC Dono", "")
+        df_ex["Filial"] = df.get("Filial", "") 
+
+        st.dataframe(df_ex, use_container_width=True, hide_index=True)
+        
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df_ex.to_excel(writer, index=False, sheet_name='Oportunidades')
+        
+        st.download_button(
+            label="📥 Fazer Download em Excel (.xlsx)",
+            data=buffer.getvalue(), file_name=f"Base_Oportunidades_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.ms-excel", type="primary"
+        )
+
+def pagina_admin():
+    st.markdown('<h2 style="color: #0f172a;">⚙️ Painel de Acessos e Sistema</h2>', unsafe_allow_html=True)
+    
+    tab_novo, tab_edit, tab_import = st.tabs(["➕ Novo Usuário", "✏️ Editar Usuários", "📤 Importar Planilha (Excel)"])
+    
+    with tab_novo:
+        with st.container(border=True):
+            col1, col2 = st.columns(2)
             with col1:
-                st.markdown(f"**Craque:** {row['Craque']}")
-                st.markdown(f"**Área:** {row['Área']} | **Filial:** {row['Filial']}")
-                st.markdown(f"**Frente:** {row['Frente de Negócio']}")
-                st.markdown(f"**Dono:** {row['Dono da Oportunidade']} | **CC:** {row['CC Dono']}")
+                login = st.text_input("Login (sem @)", key="novo_login")
+                email_usuario = st.text_input("E-mail corporativo", key="novo_email")
+                nome = st.text_input("Nome Completo", key="novo_nome")
+                perfil = st.selectbox("Perfil", ["craque", "lider", "adm", "diretoria"], key="novo_perfil")
             with col2:
-                st.markdown(f"**Grupo:** {row['Grupo Contábil']}")
-                st.markdown(f"**Conta Orç.:** {row['Conta Orçamento']}")
-                st.markdown(f"**Conta Cont.:** {row['Conta Contábil']}")
-            with col3:
-                st.markdown(f"**Total 2026:** {brl(row['Total 2026'])}")
-                st.markdown(f"**Total 2027:** {brl(row['Total 2027'])}")
-                st.markdown(f"**Total 2028:** {brl(row['Total 2028'])}")
-                st.markdown(f"**Cadastro:** {row['Data Cadastro (N1)']}")
+                senha = st.text_input("Senha Inicial *", type="password", key="novo_senha")
+                frente = st.selectbox("Frente", ["", "Operações", "Supply", "Financeiro", "Corporativo"], key="novo_frente")
+                filial = st.text_input("Filial", key="novo_filial")
+                area = st.selectbox("Área", [""] + db.ler_areas(), key="novo_area")
+                
+            if st.button("Cadastrar Usuário", width="stretch", type="primary"):
+                if login.strip() and nome.strip() and senha.strip():
+                    db.cadastrar_usuario_manual(login, nome, perfil, email_usuario, filial, area, frente, senha)
+                    st.success(f"Usuário '{login}' criado com sucesso!")
+                else: 
+                    st.error("Preencha Login, Nome e Senha Inicial.")
 
-            # Histórico e datas
-            col4, col5 = st.columns(2)
-            with col4:
-                st.markdown(f"**Histórico:** {row['Histórico de Níveis']}")
-                if row["Data Esperada N3"]: st.markdown(f"**Prev. N3:** {row['Data Esperada N3']}")
-                if row["Data Esperada N4"]: st.markdown(f"**Prev. N4:** {row['Data Esperada N4']}")
-            with col5:
-                datas_r = [(f"N{n}", row[f"Data Realizada N{n}"]) for n in ["0","2","3","4"] if row.get(f"Data Realizada N{n}","")]
-                for label, dt in datas_r:
-                    st.markdown(f"**Real. {label}:** {dt}")
-
-            # Comentário
-            st.markdown("**Comentário da Semana:**")
-            if row["Comentário da Semana"].strip():
-                st.markdown(f'<div class="comentario-box">{row["Comentário da Semana"]}</div>', unsafe_allow_html=True)
-            else:
-                st.caption("Nenhum comentário ainda.")
-
-            # Ações (comentário + edição + movimentação)
-            _acoes_oportunidade(row, u)
-
-def _acoes_oportunidade(row, u):
-    perfil = u.get("perfil","")
-    id_ = row["ID"]
-    st.markdown("---")
-
-    # ── Adicionar comentário (todos os perfis) ──
-    with st.expander("💬 Adicionar comentário"):
-        with st.form(f"form_coment_{id_}"):
-            texto = st.text_area("Comentário", max_chars=500, key=f"coment_txt_{id_}")
-            if st.form_submit_button("Enviar"):
-                if texto.strip():
-                    db.adicionar_comentario(id_, texto.strip(), u)
-                    st.success("Comentário adicionado!"); st.rerun()
-                else:
-                    st.error("Digite um comentário.")
-
-    # ── Movimentar nível ──
-    pode_mover = perfil in ("lider","adm")
-    if pode_mover:
-        with st.expander("🔄 Movimentar Nível"):
-            with st.form(f"form_nivel_{id_}"):
-                novo_nivel = st.selectbox("Novo nível", db.NIVEIS, key=f"sel_nivel_{id_}")
-                if st.form_submit_button("Confirmar movimentação"):
-                    try:
-                        db.movimentar_nivel(id_, novo_nivel, u)
-                        st.success(f"Nível atualizado para {novo_nivel}!"); st.rerun()
-                    except PermissionError as e:
-                        st.error(str(e))
-                    except Exception as e:
-                        st.error(f"Erro: {e}")
-
-    # ── Editar campos ──
-    pode_editar = perfil in ("lider","adm")
-    if pode_editar:
-        with st.expander("✏️ Editar Oportunidade"):
-            confirmacao = st.checkbox("Confirmo que desejo alterar esta oportunidade", key=f"confirm_{id_}")
-            if confirmacao:
-                pc = db.ler_plano_contas()
-                grupos = sorted(pc["Grupo"].unique().tolist())
-                with st.form(f"form_edit_{id_}"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        nova_desc = st.text_area("Descrição", value=row["Descrição"], max_chars=300)
-                        novo_dono = st.text_input("Dono da Oportunidade", value=row["Dono da Oportunidade"])
-                        novo_cc   = st.text_input("CC Dono", value=row["CC Dono"])
-                    with col2:
-                        novo_grupo = st.selectbox("Grupo Contábil", [""] + grupos,
-                            index=([""] + grupos).index(row["Grupo Contábil"]) if row["Grupo Contábil"] in grupos else 0)
-                        contas_orc = sorted(pc[pc["Grupo"]==novo_grupo]["ContaOrc"].unique().tolist()) if novo_grupo else []
-                        nova_conta_orc = st.selectbox("Conta Orçamento", [""] + contas_orc)
-                        contas_cont = sorted(pc[(pc["Grupo"]==novo_grupo)&(pc["ContaOrc"]==nova_conta_orc)]["ContaCont"].unique().tolist()) if nova_conta_orc else []
-                        nova_conta_cont = st.selectbox("Conta Contábil", [""] + contas_cont)
-
-                    # Datas esperadas (líder e adm)
-                    col3, col4 = st.columns(2)
-                    with col3:
-                        data_esp_n3 = st.text_input("Data Esperada N3 (dd/mm/aaaa)", value=row["Data Esperada N3"])
-                    with col4:
-                        data_esp_n4 = st.text_input("Data Esperada N4 (dd/mm/aaaa)", value=row["Data Esperada N4"])
-
-                    st.markdown("**Estimativas mensais 2026**")
-                    meses = db.MESES
-                    cols_m = st.columns(6)
-                    vals_mes = {}
-                    for idx, m in enumerate(meses):
-                        with cols_m[idx % 6]:
-                            cur = float(row.get(f"Est. {m}/26", 0) or 0)
-                            vals_mes[m] = st.number_input(m, min_value=0, value=int(cur), step=1000, key=f"edit_m_{id_}_{m}")
-
-                    col5, col6 = st.columns(2)
-                    with col5:
-                        total_2027 = st.number_input("Total 2027", min_value=0, value=int(float(row.get("Total 2027",0) or 0)), step=1000)
-                    with col6:
-                        total_2028 = st.number_input("Total 2028", min_value=0, value=int(float(row.get("Total 2028",0) or 0)), step=1000)
-
-                    if st.form_submit_button("💾 Salvar alterações", type="primary"):
-                        campos = {
-                            "Descrição": nova_desc,
-                            "Dono da Oportunidade": novo_dono,
-                            "CC Dono": novo_cc,
-                            "Grupo Contábil": novo_grupo,
-                            "Conta Orçamento": nova_conta_orc,
-                            "Conta Contábil": nova_conta_cont,
-                            "Data Esperada N3": data_esp_n3,
-                            "Data Esperada N4": data_esp_n4,
-                            "Total 2027": total_2027,
-                            "Total 2028": total_2028,
-                        }
-                        for m in meses:
-                            campos[f"Est. {m}/26"] = vals_mes[m]
-                        db.atualizar_oportunidade(id_, campos, u)
-                        st.success("Oportunidade atualizada!"); st.rerun()
-
-# ── PÁGINA: DASHBOARD ──────────────────────────────────────────────────────────
-def pagina_dashboard():
-    u = st.session_state.usuario
-    st.markdown('<div class="page-title">📈 Dashboard</div>', unsafe_allow_html=True)
-    df = filtrar_por_perfil(db.ler_oportunidades(), u)
-    df_ativas = df[df["Nível"] != "N0 - Cancelada"]
-
-    # KPIs
-    total = len(df_ativas)
-    pot_2026 = df_ativas["Total 2026"].sum()
-    impl = len(df_ativas[df_ativas["Nível"] == "N4 - Implementado"])
-    em_and = len(df_ativas[df_ativas["Nível"] != "N4 - Implementado"])
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1: st.markdown(kpi("Total de Ideias", total, "blue"), unsafe_allow_html=True)
-    with col2: st.markdown(kpi("Potencial 2026", brl(pot_2026), "green"), unsafe_allow_html=True)
-    with col3: st.markdown(kpi("Implementadas (N4)", impl, "blue"), unsafe_allow_html=True)
-    with col4: st.markdown(kpi("Em Andamento", em_and, "green"), unsafe_allow_html=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown("**Distribuição por Nível**")
-        por_nivel = df_ativas["Nível"].value_counts().reset_index()
-        por_nivel.columns = ["Nível","Qtd"]
-        st.bar_chart(por_nivel.set_index("Nível"), color="#185FA5")
-
-    with col2:
-        st.markdown("**Potencial 2026 por Frente (R$)**")
-        por_frente = df_ativas.groupby("Frente de Negócio")["Total 2026"].sum().reset_index()
-        por_frente.columns = ["Frente","Total 2026"]
-        st.bar_chart(por_frente.set_index("Frente"), color="#3B6D11")
-
-    col3, col4 = st.columns(2)
-    with col3:
-        st.markdown("**Potencial 2026 por Conta Orçamento (R$)**")
-        por_conta = df_ativas.groupby("Conta Orçamento")["Total 2026"].sum().reset_index()
-        st.bar_chart(por_conta.set_index("Conta Orçamento"), color="#185FA5")
-
-    with col4:
-        st.markdown("**Nº de Ideias por Área**")
-        por_area = df_ativas["Área"].value_counts().reset_index()
-        por_area.columns = ["Área","Qtd"]
-        st.bar_chart(por_area.set_index("Área"), color="#3B6D11")
-
-# ── PÁGINA: EVOLUÇÃO MACRO ─────────────────────────────────────────────────────
-def pagina_evolucao():
-    u = st.session_state.usuario
-    st.markdown('<div class="page-title">📉 Evolução Macro</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Valor acumulado esperado por nível ao longo das semanas</div>', unsafe_allow_html=True)
-
-    df = filtrar_por_perfil(db.ler_oportunidades(), u)
-    df_ativas = df[df["Nível"] != "N0 - Cancelada"]
-
-    # Simula evolução semanal por data de movimentação
-    st.info("A evolução macro é calculada com base nas datas realizadas de movimentação de nível.")
-
-    # Agrupa por semana/nível com base nas datas realizadas
-    niveis_datas = {
-        "N2 - Planejamento": "Data Realizada N2",
-        "N3 - Execução":     "Data Realizada N3",
-        "N4 - Implementado": "Data Realizada N4",
-    }
-
-    frames = []
-    for nivel, col_data in niveis_datas.items():
-        sub = df_ativas[df_ativas[col_data].str.strip() != ""][[col_data,"Total 2026"]].copy()
-        if sub.empty: continue
-        sub["Data"] = pd.to_datetime(sub[col_data], format="%d/%m/%Y", errors="coerce")
-        sub = sub.dropna(subset=["Data"])
-        sub["Semana"] = sub["Data"].dt.to_period("W").apply(lambda r: str(r.start_time.date()))
-        ag = sub.groupby("Semana")["Total 2026"].sum().reset_index()
-        ag["Nível"] = nivel
-        frames.append(ag)
-
-    if frames:
-        df_ev = pd.concat(frames)
-        pivot = df_ev.pivot_table(index="Semana", columns="Nível", values="Total 2026", aggfunc="sum").fillna(0).cumsum()
-        st.line_chart(pivot)
-    else:
-        st.warning("Ainda não há movimentações de nível registradas para gerar a evolução.")
-
-# ── PÁGINA: IDEIAS EM ATRASO ───────────────────────────────────────────────────
-def pagina_atraso():
-    u = st.session_state.usuario
-    st.markdown('<div class="page-title">⚠️ Ideias em Atraso</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Oportunidades com data prevista de avanço ultrapassada</div>', unsafe_allow_html=True)
-
-    df = filtrar_por_perfil(db.ler_oportunidades(), u)
-    hoje = datetime.now().date()
-
-    def esta_atrasada(row):
-        nivel = str(row["Nível"])[:2]
-        if nivel in ("N0","N4"): return False
-        if nivel in ("N1","N2"):
-            dt = row.get("Data Esperada N3","")
+    with tab_edit:
+        st.write("Selecione um usuário para atualizar seus dados ou excluí-lo do sistema.")
+        df_usuarios = db.ler_usuarios() 
+        if not df_usuarios.empty:
+            usuario_alvo = st.selectbox("Selecione o Usuário:", [""] + df_usuarios["login"].tolist())
+            
+            if usuario_alvo:
+                dados_atuais = df_usuarios[df_usuarios["login"] == usuario_alvo].iloc[0]
+                
+                with st.form("form_edicao"):
+                    c1, c2 = st.columns(2)
+                    edit_nome = c1.text_input("Nome", value=dados_atuais.get("nome", ""))
+                    edit_email = c1.text_input("E-mail", value=dados_atuais.get("email", ""))
+                    
+                    lista_perfis = ["craque", "lider", "adm", "diretoria"]
+                    idx_perfil = lista_perfis.index(dados_atuais.get("perfil", "craque")) if dados_atuais.get("perfil", "craque") in lista_perfis else 0
+                    edit_perfil = c1.selectbox("Perfil", lista_perfis, index=idx_perfil)
+                    
+                    lista_frentes = ["", "Operações", "Supply", "Financeiro", "Corporativo"]
+                    idx_frente = lista_frentes.index(dados_atuais.get("frente", "")) if dados_atuais.get("frente", "") in lista_frentes else 0
+                    edit_frente = c2.selectbox("Frente", lista_frentes, index=idx_frente)
+                    
+                    edit_filial = c2.text_input("Filial", value=dados_atuais.get("filial", ""))
+                    edit_senha = c2.text_input("Nova Senha (Deixe em branco para manter a atual)", type="password")
+                    
+                    if st.form_submit_button("Salvar Alterações", type="primary"):
+                        db.atualizar_usuario_completo(usuario_alvo, edit_nome, edit_email, edit_perfil, edit_frente, edit_filial, edit_senha)
+                        st.success("Usuário atualizado com sucesso!")
+                        time.sleep(1); st.rerun()
+                
+                # 🟢 BOTÃO DE EXCLUSÃO (Fica fora do form para não misturar as ações)
+                st.markdown("<br>", unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown("#### ⚠️ Zona de Perigo")
+                    st.write("A exclusão de um usuário é permanente e ele perderá o acesso na mesma hora.")
+                    if st.button(f"🗑️ Excluir '{usuario_alvo}' definitivamente"):
+                        db.excluir_usuario(usuario_alvo)
+                        st.success(f"Usuário {usuario_alvo} apagado do banco de dados!")
+                        time.sleep(1.5); st.rerun()
         else:
-            dt = row.get("Data Esperada N4","")
-        if not str(dt).strip(): return False
-        try:
-            return datetime.strptime(dt, "%d/%m/%Y").date() < hoje
-        except: return False
+            st.info("Nenhum usuário cadastrado.")
 
-    df_at = df[df.apply(esta_atrasada, axis=1)].copy()
+    with tab_import:
+        st.write("Faça o upload da planilha base legada. O sistema criará as ideias automaticamente no banco.")
+        arquivo_excel = st.file_uploader("Selecione a Planilha (.xlsx)", type=["xlsx"])
+        
+        if arquivo_excel is not st.session_state.get('ultimo_arquivo'):
+            st.session_state.ultimo_arquivo = arquivo_excel
+            
+        if arquivo_excel and st.button("🚀 Processar e Importar Planilha", type="primary"):
+            try:
+                df_import = pd.read_excel(arquivo_excel)
+                db.importar_base_excel(df_import, st.session_state.usuario)
+                st.success("Planilha importada com sucesso para o banco de dados!")
+            except Exception as e:
+                st.error(f"Erro ao ler a planilha. Verifique se o formato está correto. Erro: {e}")
+    
 
-    if df_at.empty:
-        st.success("✅ Nenhuma ideia em atraso no momento.")
-        return
-
-    st.warning(f"**{len(df_at)} ideia(s) em atraso**")
-    for _, row in df_at.iterrows():
-        nivel = str(row["Nível"])[:2]
-        dt_prev = row["Data Esperada N3"] if nivel in ("N1","N2") else row["Data Esperada N4"]
-        try:
-            dias = (hoje - datetime.strptime(dt_prev, "%d/%m/%Y").date()).days
-        except: dias = "?"
-        st.markdown(f"""
-        <div class="card" style="border-left:4px solid #A32D2D;">
-          <b>#{row['ID']}</b> — {row['Descrição']}<br>
-          <span style="font-size:12px;color:#64748b;">
-            {row['Nível']} | {row['Frente de Negócio']} | {row['Craque']}
-          </span><br>
-          <span style="color:#A32D2D;font-size:12px;font-weight:600;">
-            ⏰ Previsto: {dt_prev} — {dias} dia(s) em atraso
-          </span>
-        </div>
-        """, unsafe_allow_html=True)
-
-# ── PÁGINA: RELATÓRIO GERENCIAL ────────────────────────────────────────────────
-def pagina_gerencial():
-    u = st.session_state.usuario
-    st.markdown('<div class="page-title">📑 Relatório Gerencial</div>', unsafe_allow_html=True)
-    st.markdown('<div class="page-sub">Orçado vs Realizado por frente — valores imputados na aba Orçado do Excel</div>', unsafe_allow_html=True)
-
-    df = filtrar_por_perfil(db.ler_oportunidades(), u)
-    df_impl = df[df["Nível"] == "N4 - Implementado"]
-    orc = db.ler_orcado()
-
-    anos = [2026, 2027, 2028]
-    ano_sel = st.selectbox("Ano", anos)
-
-    orc_ano = orc[orc["Ano"] == str(ano_sel)][["Frente","Total"]].rename(columns={"Total":"Orçado"})
-
-    # Realizado: soma do total do ano das implementadas
-    col_real = f"Total {ano_sel}"
-    if col_real in df_impl.columns:
-        real = df_impl.groupby("Frente de Negócio")[col_real].sum().reset_index()
-        real.columns = ["Frente","Realizado"]
-    else:
-        real = pd.DataFrame(columns=["Frente","Realizado"])
-
-    df_ger = orc_ano.merge(real, on="Frente", how="left").fillna(0)
-    df_ger["Orçado"]    = pd.to_numeric(df_ger["Orçado"],    errors="coerce").fillna(0)
-    df_ger["Realizado"] = pd.to_numeric(df_ger["Realizado"], errors="coerce").fillna(0)
-    df_ger["% Ating."]  = (df_ger["Realizado"] / df_ger["Orçado"].replace(0,1) * 100).round(1)
-    df_ger["Gap"]       = df_ger["Realizado"] - df_ger["Orçado"]
-
-    # Formata para exibição
-    df_show = df_ger.copy()
-    for col in ["Orçado","Realizado","Gap"]:
-        df_show[col] = df_show[col].apply(brl)
-    df_show["% Ating."] = df_show["% Ating."].astype(str) + "%"
-    st.dataframe(df_show, use_container_width=True, hide_index=True)
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("**Realizado vs Orçado por Frente (R$)**")
-    chart_data = df_ger.set_index("Frente")[["Orçado","Realizado"]]
-    st.bar_chart(chart_data)
-
-    # Distribuição por nível
-    st.markdown("**Potencial em cada Nível**")
-    por_nivel = df[df["Nível"] != "N0 - Cancelada"].groupby("Nível")["Total 2026"].sum().reset_index()
-    por_nivel.columns = ["Nível","Total 2026"]
-    por_nivel["Total 2026 (R$)"] = por_nivel["Total 2026"].apply(brl)
-    st.dataframe(por_nivel[["Nível","Total 2026 (R$)"]], use_container_width=True, hide_index=True)
-
-# ── ROTEADOR PRINCIPAL ─────────────────────────────────────────────────────────
 def main():
-    if not st.session_state.usuario:
-        tela_login()
-        return
+    if not st.session_state.usuario: tela_login()
+    else: painel_principal()
 
-    pagina = sidebar()
-
-    if   "Cadastro"    in pagina: pagina_cadastro()
-    elif "Tabela"      in pagina: pagina_tabela()
-    elif "Dashboard"   in pagina: pagina_dashboard()
-    elif "Evolução"    in pagina: pagina_evolucao()
-    elif "Atraso"      in pagina: pagina_atraso()
-    elif "Gerencial"   in pagina: pagina_gerencial()
-
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
