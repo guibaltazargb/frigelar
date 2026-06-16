@@ -1,269 +1,263 @@
-"""
-Camada de acesso ao Excel — todas as operações de leitura e escrita.
-"""
 import pandas as pd
-import openpyxl
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 from datetime import datetime
-import os, threading
+import firebase_admin
+from firebase_admin import credentials, firestore
+import streamlit as st # 🟢 Precisamos importar o Streamlit aqui também
 
-EXCEL_PATH = os.environ.get("EXCEL_PATH", "essencia_banco.xlsx")
-_lock = threading.Lock()
+if not firebase_admin._apps:
+    # Cofre 'secrets'
+    if "firebase" in st.secrets:
+        cred_dict = dict(st.secrets["firebase"])
+        cred = credentials.Certificate(cred_dict)
+    else:
+        cred = credentials.Certificate("firebase-key.json")
+        
+    firebase_admin.initialize_app(cred)
 
-# ── Helpers de estilo ──────────────────────────────────────────────────────────
-def hfill(hex_): return PatternFill("solid", start_color=hex_, fgColor=hex_)
-def thin():
-    s = Side(style="thin", color="D1D5DB")
-    return Border(left=s, right=s, top=s, bottom=s)
+db_fire = firestore.client()
+# ──────────────────────────────────────────────────────────────────────────
 
-COR_NIVEL = {
-    "N0": "F5C6C6",
-    "N1": "E6F1FB",
-    "N2": "EAF3DE",
-    "N3": "FAEEDA",
-    "N4": "E1F5EE",
-}
+NIVEIS = ["N1 - Ideia", "N2 - Planejamento", "N3 - Execução", "N4 - Implementado", "N0 - Cancelada"]
 
-NIVEIS = [
-    "N1 - Ideia",
-    "N2 - Planejamento",
-    "N3 - Execução",
-    "N4 - Implementado",
-    "N0 - Cancelada",
-]
-
-MESES = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"]
-
-COLS_OP = [
-    "ID","Nível","Descrição","Comentário da Semana",
-    "Grupo Contábil","Conta Orçamento","Conta Contábil",
-    "Dono da Oportunidade","CC Dono",
-    "Est. Jan/26","Est. Fev/26","Est. Mar/26","Est. Abr/26",
-    "Est. Mai/26","Est. Jun/26","Est. Jul/26","Est. Ago/26",
-    "Est. Set/26","Est. Out/26","Est. Nov/26","Est. Dez/26",
-    "Total 2026","Total 2027","Total 2028",
-    "Craque","Filial","Área","Frente de Negócio",
-    "Data Cadastro (N1)",
-    "Data Esperada N3","Data Esperada N4",
-    "Data Realizada N0","Data Realizada N2",
-    "Data Realizada N3","Data Realizada N4",
-    "Histórico de Níveis",
-]
-
-# ── Leitura ────────────────────────────────────────────────────────────────────
-def ler_oportunidades() -> pd.DataFrame:
-    with _lock:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Oportunidades", dtype=str)
-        df.columns = COLS_OP
-        df = df.fillna("")
-        # Converte colunas de valor para numérico
-        cols_val = [c for c in COLS_OP if c.startswith("Est.") or c.startswith("Total")]
-        for col in cols_val:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        return df
-
-def ler_usuarios() -> pd.DataFrame:
-    with _lock:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Usuários", dtype=str)
-        df.columns = ["Login","Nome","Perfil","Ativo"]
-        return df[df["Ativo"].str.lower() == "sim"].fillna("")
-
-def ler_craques() -> pd.DataFrame:
-    with _lock:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Craques", dtype=str)
-        df.columns = ["Login","Nome","Filial","Área","Frente"]
-        return df.fillna("")
-
-def ler_lideres() -> pd.DataFrame:
-    with _lock:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Líderes", dtype=str)
-        df.columns = ["Login","Nome","Frente"]
-        return df.fillna("")
-
-def ler_plano_contas() -> pd.DataFrame:
-    with _lock:
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Plano de Contas", dtype=str)
-        df.columns = ["Grupo","ContaOrc","ContaCont","Código"]
-        return df.fillna("")
-
-def ler_orcado() -> pd.DataFrame:
-    with _lock:
-        cols = ["Frente","Ano"] + MESES + ["Total"]
-        df = pd.read_excel(EXCEL_PATH, sheet_name="Orçado", dtype=str)
-        df.columns = cols
-        for col in MESES + ["Total"]:
-            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
-        return df
-
-# ── Auth ───────────────────────────────────────────────────────────────────────
-def autenticar(login: str):
-    """Retorna dict com dados do usuário ou None se não encontrado."""
-    usuarios = ler_usuarios()
-    row = usuarios[usuarios["Login"].str.lower() == login.lower()]
-    if row.empty:
-        return None
-    u = row.iloc[0]
-    dados = {"login": u["Login"], "nome": u["Nome"], "perfil": u["Perfil"]}
-    if u["Perfil"] == "craque":
-        craques = ler_craques()
-        cq = craques[craques["Login"].str.lower() == login.lower()]
-        if not cq.empty:
-            dados["filial"] = cq.iloc[0]["Filial"]
-            dados["area"]   = cq.iloc[0]["Área"]
-            dados["frente"] = cq.iloc[0]["Frente"]
-    elif u["Perfil"] == "lider":
-        lideres = ler_lideres()
-        lid = lideres[lideres["Login"].str.lower() == login.lower()]
-        if not lid.empty:
-            dados["frente"] = lid.iloc[0]["Frente"]
-    return dados
-
-# ── Próximo ID ─────────────────────────────────────────────────────────────────
-def proximo_id(df: pd.DataFrame) -> str:
-    if df.empty or df["ID"].eq("").all():
-        return "001"
-    ids = df["ID"].str.extract(r"(\d+)")[0].dropna().astype(int)
-    return str(ids.max() + 1).zfill(3)
-
-# ── Salvar linha no Excel ──────────────────────────────────────────────────────
-def _reescrever_oportunidades(df: pd.DataFrame):
-    """Reescreve a aba Oportunidades preservando as demais abas."""
-    with _lock:
-        wb = openpyxl.load_workbook(EXCEL_PATH)
-        ws = wb["Oportunidades"]
-
-        # Limpa dados antigos (mantém cabeçalho linha 1)
-        for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-            for cell in row:
-                cell.value = None
-                cell.fill = PatternFill(fill_type=None)
-
-        for ri, (_, row) in enumerate(df.iterrows(), 2):
-            nivel_key = str(row.get("Nível","N1"))[:2]
-            bg = COR_NIVEL.get(nivel_key, "FFFFFF")
-            for ci, col in enumerate(COLS_OP, 1):
-                val = row.get(col, "")
-                if pd.isna(val): val = ""
-                c = ws.cell(ri, ci, val)
-                c.font   = Font(name="Arial", size=10)
-                c.fill   = hfill(bg)
-                c.border = thin()
-                c.alignment = Alignment(
-                    horizontal="center" if ci in [1,2,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,29,30,31,32,33,34,35]
-                    else "left", vertical="center", wrap_text=True
-                )
-                if ci in range(10, 25):
-                    c.number_format = 'R$ #,##0'
-            ws.row_dimensions[ri].height = 22
-
-        wb.save(EXCEL_PATH)
-
-# ── Cadastrar oportunidade ─────────────────────────────────────────────────────
-def cadastrar_oportunidade(dados: dict, usuario: dict) -> str:
-    df = ler_oportunidades()
-    novo_id = proximo_id(df)
-    hoje = datetime.now().strftime("%d/%m/%Y")
-
-    nova = {col: "" for col in COLS_OP}
-    nova.update({
-        "ID":                    novo_id,
-        "Nível":                 "N1 - Ideia",
-        "Descrição":             dados.get("descricao",""),
-        "Comentário da Semana":  "",
-        "Grupo Contábil":        dados.get("grupo",""),
-        "Conta Orçamento":       dados.get("conta_orc",""),
-        "Conta Contábil":        dados.get("conta_cont",""),
-        "Dono da Oportunidade":  dados.get("dono",""),
-        "CC Dono":               dados.get("cc_dono",""),
-        "Total 2027":            dados.get("total_2027", 0),
-        "Total 2028":            dados.get("total_2028", 0),
-        "Craque":                usuario.get("nome",""),
-        "Filial":                usuario.get("filial",""),
-        "Área":                  usuario.get("area",""),
-        "Frente de Negócio":     usuario.get("frente",""),
-        "Data Cadastro (N1)":    hoje,
-        "Histórico de Níveis":   f"N1 - Ideia ({hoje})",
+def cadastrar_usuario_com_email(login, nome, perfil, email, filial="", area="", frente=""):
+    login_id = login.strip().lower()
+    db_fire.collection("usuarios").document(login_id).set({
+        "Nome Completo": nome, "Perfil": perfil, "Ativo": "Sim",
+        "Filial": filial, "Área": area, "Frente de Negócio": frente,
+        "Data Cadastro": datetime.now().strftime("%d/%m/%Y %H:%M")
     })
-    # Estimativas mensais
-    for m in MESES:
-        nova[f"Est. {m}/26"] = dados.get(f"est_{m.lower()}", 0)
-    # Total 2026 automático
-    nova["Total 2026"] = sum(dados.get(f"est_{m.lower()}", 0) for m in MESES)
+    
+    corpo_email = f"""
+    <h1>Bem-vindo ao Programa Essência</h1>
+    <p>Olá, <b>{nome}</b>!</p>
+    <p>Seu acesso foi liberado pelo nosso Administrador.</p>
+    <p><b>Login:</b> {login_id}<br><b>Perfil:</b> {perfil.upper()}</p>
+    <p>Acesse o sistema agora mesmo!</p>
+    """
+    db_fire.collection("mail").add({
+        "to": email, "message": {"subject": "Boas-vindas ao Programa Essência", "html": corpo_email}
+    })
 
-    df = pd.concat([df, pd.DataFrame([nova])], ignore_index=True)
-    _reescrever_oportunidades(df)
-    return novo_id
+def inicializar_banco_se_vazio():
+    doc = db_fire.collection("usuarios").document("controladoria").get()
+    if not doc.exists:
+        cadastrar_usuario_com_email("controladoria", "Controladoria", "adm", "controladoria@frigelar.com.br")
+        cadastrar_usuario_com_email("diretoria", "Diretoria Executiva", "diretoria", "diretoria@frigelar.com.br")
 
-# ── Atualizar campos ───────────────────────────────────────────────────────────
-def atualizar_oportunidade(id_: str, campos: dict, usuario: dict):
-    df = ler_oportunidades()
-    idx = df.index[df["ID"] == id_]
-    if idx.empty:
-        raise ValueError("Oportunidade não encontrada")
-    i = idx[0]
-    for k, v in campos.items():
-        if k in df.columns:
-            df.at[i, k] = v
-    # Recalcula Total 2026
-    meses_vals = [df.at[i, f"Est. {m}/26"] for m in MESES]
-    df.at[i, "Total 2026"] = sum(float(v) if v != "" else 0 for v in meses_vals)
-    _reescrever_oportunidades(df)
+inicializar_banco_se_vazio()
 
-# ── Movimentar nível ───────────────────────────────────────────────────────────
-def movimentar_nivel(id_: str, novo_nivel: str, usuario: dict):
-    df = ler_oportunidades()
-    idx = df.index[df["ID"] == id_]
-    if idx.empty:
-        raise ValueError("Oportunidade não encontrada")
-    i = idx[0]
+# ── PLANO DE CONTAS COM FRENTE DE NEGÓCIO ATRELADA ────────────────────────
+def ler_plano_contas() -> pd.DataFrame:
+    plano = [
+        {"ContaOrc": "Energia Elétrica", "ContaCont": "Energia Elétrica CD", "Código": "3.1.2.001", "Frente": "Operações"},
+        {"ContaOrc": "Energia Elétrica", "ContaCont": "Energia Elétrica Admin", "Código": "3.1.2.002", "Frente": "Corporativo"},
+        {"ContaOrc": "Fretes e Logística", "ContaCont": "Frete Saída", "Código": "3.1.3.001", "Frente": "Supply"},
+        {"ContaOrc": "Fretes e Logística", "ContaCont": "Frete Retorno", "Código": "3.1.3.002", "Frente": "Supply"},
+        {"ContaOrc": "Matéria Prima", "ContaCont": "Insumo Nacional", "Código": "3.2.2.001", "Frente": "Operações"},
+        {"ContaOrc": "TI e Sistemas", "ContaCont": "Licenças de Software", "Código": "4.1.3.001", "Frente": "Corporativo"},
+        {"ContaOrc": "Serviços Terceiros", "ContaCont": "Consultoria Financeira", "Código": "4.1.4.001", "Frente": "Financeiro"}
+    ]
+    return pd.DataFrame(plano)
+
+def ler_areas() -> list:
+    return ["Garantia", "SAC", "Logística CD", "Transportes", "TI", "RH", "Controladoria", "Compras", "Lojas"]
+
+# ── AUTENTICAÇÃO E OPERAÇÕES CORE ─────────────────────────────────────────
+def autenticar(email_ou_login: str):
+    login_limpo = email_ou_login.split("@")[0].strip().lower()
+    doc_ref = db_fire.collection("usuarios").document(login_limpo).get()
+    if doc_ref.exists:
+        u = doc_ref.to_dict()
+        if u.get("Ativo") == "Sim":
+            return {"login": login_limpo, "nome": u.get("Nome Completo"), "perfil": u.get("Perfil"), "filial": u.get("Filial", ""), "area": u.get("Área", ""), "frente": u.get("Frente de Negócio", "")}
+    return None
+
+def ler_oportunidades() -> pd.DataFrame:
+    docs = db_fire.collection("oportunidades").stream()
+    lista = [{**doc.to_dict(), "ID": doc.id} for doc in docs]
+    if not lista: return pd.DataFrame()
+    df = pd.DataFrame(lista)
+    
+    # TRAVA DE SEGURANÇA: Garante que as novas colunas existam mesmo em cadastros antigos
+    if "Total Estimado 2026" not in df.columns: 
+        df["Total Estimado 2026"] = 0.0
+    if "Submetido Controladoria" not in df.columns: 
+        df["Submetido Controladoria"] = False
+        
+    return df.fillna("")
+
+def cadastrar_oportunidade(dados: dict, usuario: dict) -> str:
     hoje = datetime.now().strftime("%d/%m/%Y")
-    nivel_atual = df.at[i, "Nível"]
+    nova = {
+        "Nível": "N1 - Ideia", 
+        "Título": dados.get("titulo",""), # 🟢 LINHA ADICIONADA AQUI
+        "Descrição": dados.get("descricao",""), 
+        "Comentário da Semana": "",
+        "Conta Orçamento": dados.get("conta_orc",""), 
+        "Conta Contábil": dados.get("conta_cont",""), 
+        "Dono da Oportunidade": dados.get("dono",""), 
+        "CC Dono": dados.get("cc_dono",""), 
+        "Craque": usuario.get("nome",""), 
+        "Filial": usuario.get("filial",""), 
+        "Área": dados.get("area_ideia",""), 
+        "Frente de Negócio": dados.get("frente_automatica",""), 
+        "Data Cadastro (N1)": hoje, 
+        "Total Estimado 2026": float(dados.get("ganho_2026", 0)),
+        "Submetido Controladoria": False
+    }
+    doc_ref = db_fire.collection("oportunidades").add(nova)
+    return doc_ref[1].id[:6]
 
-    # Valida permissão de movimentação
-    perfil = usuario.get("perfil","")
-    erros = []
-    if novo_nivel == "N0 - Cancelada":
-        if perfil not in ("lider","adm"):
-            erros.append("Apenas Líder da Frente ou Adm podem cancelar.")
-    elif novo_nivel == "N2 - Planejamento":
-        if perfil != "adm":
-            erros.append("Apenas Adm podem mover para N2.")
-    elif novo_nivel == "N3 - Execução":
-        if perfil not in ("lider","adm"):
-            erros.append("Apenas Líder da Frente ou Adm podem mover para N3.")
-    elif novo_nivel == "N4 - Implementado":
-        if perfil != "adm":
-            erros.append("Apenas Adm podem mover para N4.")
-    if erros:
-        raise PermissionError(erros[0])
+def movimentar_nivel(id_, novo_nivel, usuario):
+    db_fire.collection("oportunidades").document(id_).update({"Nível": novo_nivel})
 
-    # Atualiza datas realizadas
-    if novo_nivel == "N0 - Cancelada":
-        df.at[i, "Data Realizada N0"] = hoje
-    elif novo_nivel == "N2 - Planejamento":
-        df.at[i, "Data Realizada N2"] = hoje
-    elif novo_nivel == "N3 - Execução":
-        df.at[i, "Data Realizada N3"] = hoje
-    elif novo_nivel == "N4 - Implementado":
-        df.at[i, "Data Realizada N4"] = hoje
+def submeter_para_controladoria(id_):
+    db_fire.collection("oportunidades").document(id_).update({"Submetido Controladoria": True})
 
-    # Histórico
-    hist = df.at[i, "Histórico de Níveis"]
-    df.at[i, "Histórico de Níveis"] = hist + f" → {novo_nivel} ({hoje})"
-    df.at[i, "Nível"] = novo_nivel
-    _reescrever_oportunidades(df)
-
-# ── Adicionar comentário ───────────────────────────────────────────────────────
-def adicionar_comentario(id_: str, texto: str, usuario: dict):
-    df = ler_oportunidades()
-    idx = df.index[df["ID"] == id_]
-    if idx.empty:
-        raise ValueError("Oportunidade não encontrada")
-    i = idx[0]
+def adicionar_comentario(id_, texto, usuario):
     hoje = datetime.now().strftime("%d/%m/%Y %H:%M")
     autor = usuario.get("nome","?")
-    comentario_atual = df.at[i, "Comentário da Semana"]
-    novo = f"[{hoje} — {autor}] {texto}"
-    df.at[i, "Comentário da Semana"] = (comentario_atual + "\n" + novo).strip()
-    _reescrever_oportunidades(df)
+    doc_ref = db_fire.collection("oportunidades").document(id_)
+    comentario_atual = doc_ref.get().to_dict().get("Comentário da Semana", "")
+    texto_final = (comentario_atual + f"\n[{hoje} - {autor}] {texto}").strip()
+    doc_ref.update({"Comentário da Semana": texto_final})
+
+def atualizar_oportunidade(id_, campos, usuario):
+    db_fire.collection("oportunidades").document(id_).update(campos)
+
+# ── GESTÃO MANUAL DE USUÁRIOS ──────────────────────────────
+
+def cadastrar_usuario_manual(login, nome, perfil, email, filial, area, frente, senha):
+    novo_usuario = {
+        "login": login,
+        "nome": nome,
+        "Nome Completo": nome, # Duplicado por segurança para retrocompatibilidade
+        "perfil": perfil,
+        "Perfil": perfil,
+        "email": email,
+        "filial": filial,
+        "Filial": filial,
+        "area": area,
+        "frente": frente,
+        "Frente de Negócio": frente,
+        "senha": senha, 
+        "Ativo": "Sim"
+    }
+    db_fire.collection("usuarios").document(login.lower()).set(novo_usuario)
+
+def ler_usuarios():
+    docs = db_fire.collection("usuarios").stream()
+    lista = []
+    for doc in docs:
+        d = doc.to_dict()
+        d["login"] = doc.id
+        # Padroniza chaves para a tabela do ADM
+        if "nome" not in d: d["nome"] = d.get("Nome Completo", "")
+        if "perfil" not in d: d["perfil"] = d.get("Perfil", "")
+        lista.append(d)
+        
+    if not lista: 
+        import pandas as pd
+        return pd.DataFrame()
+    
+    import pandas as pd
+    return pd.DataFrame(lista)
+
+def atualizar_senha_usuario(login, nova_senha):
+    db_fire.collection("usuarios").document(login).update({"senha": nova_senha})
+
+# ── ATUALIZAÇÃO DA FUNÇÃO AUTENTICAR ──────────────────────────────────────────
+def autenticar(login, senha):
+    doc = db_fire.collection("usuarios").document(login.lower()).get()
+    
+    if doc.exists:
+        dados_usuario = doc.to_dict()
+        senha_banco = dados_usuario.get("senha", "")
+        ativo_banco = dados_usuario.get("Ativo", dados_usuario.get("ativo", "Não"))
+        
+        if senha_banco == senha and ativo_banco in ["Sim", True, "sim"]:
+            # Padroniza a sessão do usuário
+            dados_usuario["login"] = doc.id
+            if "nome" not in dados_usuario: dados_usuario["nome"] = dados_usuario.get("Nome Completo", "Usuário")
+            if "perfil" not in dados_usuario: dados_usuario["perfil"] = dados_usuario.get("Perfil", "craque")
+            if "frente" not in dados_usuario: dados_usuario["frente"] = dados_usuario.get("Frente de Negócio", "")
+            return dados_usuario
+            
+    return None
+
+# ── EDIÇÃO DE USUÁRIO ──────────────────────────────────────────
+def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_senha):
+    atualizacao = {
+        "nome": nome, "Nome Completo": nome,
+        "email": email,
+        "perfil": perfil, "Perfil": perfil,
+        "frente": frente, "Frente de Negócio": frente,
+        "filial": filial, "Filial": filial
+    }
+    if nova_senha.strip(): 
+        atualizacao["senha"] = nova_senha.strip()
+        
+    db_fire.collection("usuarios").document(login).update(atualizacao)
+
+# ── IMPORTAÇÃO DE EXCEL ────────────────────────────────────────
+def importar_base_excel(df, u):
+    from datetime import datetime
+    import uuid  
+    
+    # 🟢 HIGIENIZADOR 1: Apaga linhas que são apenas formatação fantasma
+    df = df.dropna(how='all')
+    df = df.fillna("")
+    
+    for index, row in df.iterrows():
+        titulo = str(row.get("Descrição da Oportunidade", "")).strip()
+        
+        # 🟢 HIGIENIZADOR 2: Se o título estiver vazio, ignora e pula para a próxima linha!
+        if not titulo or titulo.lower() == "nan":
+            continue
+            
+        frente = str(row.get("Grupo Contábil", "")).strip()
+        conta_orc = str(row.get("Conta Orçamento", "")).strip()
+        conta_cont = str(row.get("Desc. Conta Contábil", "")).strip()
+        dono = str(row.get("Dono da Oportunidade", "")).strip()
+        cc_dono = str(row.get("Centro de Custo do Dono da Oportunidade", "")).strip()
+        filial = str(row.get("Filial", "")).strip()
+        nivel = str(row.get("Status", "N1 - Ideia")).strip()
+        
+        total_str = str(row.get("Total", "0"))
+        try: total = float(total_str) if total_str != "" else 0.0
+        except: total = 0.0
+        
+        id_unico = str(uuid.uuid4()).split("-")[0][:6].upper()
+        
+        nova_ideia = {
+            "ID": id_unico, 
+            "Título": titulo, "Descrição": titulo, 
+            "Dono da Oportunidade": dono, "CC Dono": cc_dono,
+            "Conta Orçamento": conta_orc, "Conta Contábil": conta_cont,
+            "Frente de Negócio": frente, "Filial": filial, "Nível": nivel,
+            "Craque": u.get("nome", "Importação Automática"), 
+            "Total Estimado 2026": total,
+            "Data Cadastro (N1)": datetime.now().strftime("%d/%m/%Y"),
+            "Ativo": True
+        }
+        db_fire.collection("oportunidades").document(id_unico).set(nova_ideia)
+
+# ── FUNÇÕES DO ORÇAMENTO EDITÁVEL (RELATÓRIO GERENCIAL) ───────────────────────
+def ler_orcamento():
+    """Lê as metas orçadas do banco. Se não existir, traz os padrões."""
+    try:
+        doc = db_fire.collection("config").document("orcamento").get()
+        if doc.exists: return doc.to_dict()
+    except: pass
+    return {"Operações": 1500000.0, "Supply": 800000.0, "Financeiro": 500000.0, "Corporativo": 300000.0}
+
+def salvar_orcamento(dados):
+    """Salva os novos orçamentos definidos pelo ADM no banco."""
+    db_fire.collection("config").document("orcamento").set(dados)
+
+        # ── NOVA FUNÇÃO DE EXCLUSÃO DE USUÁRIO ──────────────────────────────────────────
+def excluir_usuario(login):
+    """Apaga o documento do usuário definitivamente do banco de dados."""
+    db_fire.collection("usuarios").document(login).delete()
+
+# NÃO MEXER NO CÓDIGO QUE ESTÁ DANDO CERTO
