@@ -201,11 +201,11 @@ def pagina_tabela():
 
     # Garante colunas de meses e trimestres
     for m in range(1, 13):
-    col = f"Mês {m}"
-    if col not in df.columns:
-        df[col] = 0.0
-    else:
-        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+        col = f"Mês {m}"
+        if col not in df.columns:
+            df[col] = 0.0
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
     df["Total Estimado 2026"] = pd.to_numeric(df["Total Estimado 2026"], errors="coerce").fillna(0.0)
     df["Nível"] = df["Nível"].astype(str).str.strip()
