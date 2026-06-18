@@ -25,6 +25,23 @@ def inicializar_banco_se_vazio():
 
 inicializar_banco_se_vazio()
 
+# ── LOG DE ALTERAÇÕES ──────────────────────────────────────────────────────────
+def registrar_log(usuario, tipo_acao, descricao, id_oportunidade=""):
+    db_fire.collection("logs").add({
+        "usuario": usuario.get("nome", "?"),
+        "login": usuario.get("login", "?"),
+        "tipo_acao": tipo_acao,
+        "descricao": descricao,
+        "id_oportunidade": id_oportunidade,
+        "data_hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    })
+
+def ler_logs() -> pd.DataFrame:
+    docs = db_fire.collection("logs").order_by("data_hora", direction=firestore.Query.DESCENDING).limit(500).stream()
+    lista = [doc.to_dict() for doc in docs]
+    if not lista: return pd.DataFrame()
+    return pd.DataFrame(lista)
+
 # ── PLANO DE CONTAS COMPLETO FRIGELAR ─────────────────────────────────────────
 def ler_plano_contas() -> pd.DataFrame:
     plano = [
@@ -378,134 +395,66 @@ def ler_plano_contas() -> pd.DataFrame:
 # ── CENTROS DE CUSTO ───────────────────────────────────────────────────────────
 def ler_centros_custo() -> list:
     return [
-        "10.02 - Corp – Facilities",
-        "20.01 - TI - Backoffice",
-        "20.02 - TI - Sistemas",
-        "20.03 - TI - Governança",
-        "20.04 - TI - Infra",
-        "20.05 - Seguranca",
-        "20.06 - TI - Digital",
-        "20.08 - TI - Arquitetura",
-        "21.01 - Fin - Controladoria",
-        "21.02 - Fin - Contabilidade",
-        "21.03 - Fin - Fiscal - Apuração",
-        "21.04 - Auditoria",
-        "21.05 - Fin - Fiscal - Sustentação",
-        "21.06 - Fin - Backoffice",
-        "22.01 - Filiais - Admnistrativo",
-        "22.02 - Integra - Contas a Receber",
-        "22.03 - Integra - Contas a Pagar",
-        "22.04 - Corp - Administrativo",
-        "22.05 - Fin - Tesouraria",
-        "22.07 - Fin - Crédito",
-        "22.08 - Fin - Cobrança",
-        "23.01 - RH - Backoffice",
-        "23.03 - RH - DHO",
-        "23.04 - RH - Recrutamento e Seleção",
-        "23.05 - RH - Consultoria Interna",
-        "23.06 - RH - Depart. Pessoal",
-        "23.07 - RH - Remuneração",
-        "24.01 - Fin - Jurídico",
-        "24.02 - Prevenção E Perdas",
-        "25.01 - Dept - Projetos",
-        "30.01 - Administrativo Vendas",
-        "30.02 - Filiais - Equipe Vendas",
-        "30.03 - Filiais - Equipe Vendas II",
-        "30.04 - Inteligência de Mercado",
-        "30.05 - Ecommerce",
-        "30.06 - Filiais - Logistica",
-        "30.07 - Equipe Negócio - Câmara",
-        "30.08 - Equipe Negócio - VRF",
-        "30.09 - SAC Vendas",
-        "30.10 - B2B",
-        "30.11 - Programa Impulsiona",
-        "30.12 - SAC",
-        "30.91 - Filiais - Gerentes",
-        "30.92 - Filiais - Regionais",
-        "30.96 - Filiais - Despesas filiais",
-        "30.97 - Filiais - TI",
-        "31.01 - Marketing",
-        "31.03 - E-Commerce Marketing",
-        "32.03 - Logística - Planejamento",
-        "32.04 - Garantia Nacional",
-        "32.06 - Logistica - Pós Venda",
-        "32.07 - Logística - Backoffice",
-        "33.02 - Compras Nacional - Backoffice",
-        "33.03 - EOS - Backoffice",
-        "33.05 - Logística - Gestão de Frete",
-        "33.06 - Compras Nacional - Abastecimento",
-        "33.07 - Div Eletro - Desenvol Produto",
-        "33.08 - Compras Nacional - Comercial",
-        "33.09 - Compras Nacional - Doméstica",
-        "33.10 - Compras Nacional - Sell Out",
-        "33.11 - EOS Peças - Vendas",
-        "33.12 - EOS Peças - Compras",
-        "33.13 - EOS Peças - Importação",
-        "33.14 - Div Eletro - Marketing",
-        "33.15 - Div Eletro - Compras",
-        "33.16 - Div Eletro - Pós vendas",
-        "33.17 - Compras Nacional - AC",
-        "34.01 - Filiais - Manutenção",
-        "34.02 - Integra - Compras Indiretas",
-        "34.03 - Expansão",
-        "34.04 - Integra - Fiscal Escrituração",
-        "40.01 - Indústria - Administração",
-        "40.03 - Indústria - Vendas Externas",
-        "40.05 - Indústria - Produção",
+        "10.02 - Corp – Facilities","20.01 - TI - Backoffice","20.02 - TI - Sistemas",
+        "20.03 - TI - Governança","20.04 - TI - Infra","20.05 - Seguranca","20.06 - TI - Digital",
+        "20.08 - TI - Arquitetura","21.01 - Fin - Controladoria","21.02 - Fin - Contabilidade",
+        "21.03 - Fin - Fiscal - Apuração","21.04 - Auditoria","21.05 - Fin - Fiscal - Sustentação",
+        "21.06 - Fin - Backoffice","22.01 - Filiais - Admnistrativo","22.02 - Integra - Contas a Receber",
+        "22.03 - Integra - Contas a Pagar","22.04 - Corp - Administrativo","22.05 - Fin - Tesouraria",
+        "22.07 - Fin - Crédito","22.08 - Fin - Cobrança","23.01 - RH - Backoffice","23.03 - RH - DHO",
+        "23.04 - RH - Recrutamento e Seleção","23.05 - RH - Consultoria Interna",
+        "23.06 - RH - Depart. Pessoal","23.07 - RH - Remuneração","24.01 - Fin - Jurídico",
+        "24.02 - Prevenção E Perdas","25.01 - Dept - Projetos","30.01 - Administrativo Vendas",
+        "30.02 - Filiais - Equipe Vendas","30.03 - Filiais - Equipe Vendas II",
+        "30.04 - Inteligência de Mercado","30.05 - Ecommerce","30.06 - Filiais - Logistica",
+        "30.07 - Equipe Negócio - Câmara","30.08 - Equipe Negócio - VRF","30.09 - SAC Vendas",
+        "30.10 - B2B","30.11 - Programa Impulsiona","30.12 - SAC","30.91 - Filiais - Gerentes",
+        "30.92 - Filiais - Regionais","30.96 - Filiais - Despesas filiais","30.97 - Filiais - TI",
+        "31.01 - Marketing","31.03 - E-Commerce Marketing","32.03 - Logística - Planejamento",
+        "32.04 - Garantia Nacional","32.06 - Logistica - Pós Venda","32.07 - Logística - Backoffice",
+        "33.02 - Compras Nacional - Backoffice","33.03 - EOS - Backoffice",
+        "33.05 - Logística - Gestão de Frete","33.06 - Compras Nacional - Abastecimento",
+        "33.07 - Div Eletro - Desenvol Produto","33.08 - Compras Nacional - Comercial",
+        "33.09 - Compras Nacional - Doméstica","33.10 - Compras Nacional - Sell Out",
+        "33.11 - EOS Peças - Vendas","33.12 - EOS Peças - Compras","33.13 - EOS Peças - Importação",
+        "33.14 - Div Eletro - Marketing","33.15 - Div Eletro - Compras","33.16 - Div Eletro - Pós vendas",
+        "33.17 - Compras Nacional - AC","34.01 - Filiais - Manutenção","34.02 - Integra - Compras Indiretas",
+        "34.03 - Expansão","34.04 - Integra - Fiscal Escrituração","40.01 - Indústria - Administração",
+        "40.03 - Indústria - Vendas Externas","40.05 - Indústria - Produção",
     ]
 
 # ── FILIAIS ────────────────────────────────────────────────────────────────────
 def ler_filiais() -> list:
     return [
-        "1 - PORTO ALEGRE (RS)", "2 - OSASCO (SP)", "3 - CURITIBA (PR)",
-        "4 - SAO PAULO (SP)", "5 - OSASCO (SP)", "6 - RECIFE (PE)",
-        "7 - RIBEIRAO PRETO (SP)", "8 - RIO DE JANEIRO (RJ)", "9 - JOAO PESSOA (PB)",
-        "10 - PORTO ALEGRE (RS)", "11 - EXTREMA (MG)", "12 - PORTO ALEGRE (RS)",
-        "13 - VITORIA (ES)", "14 - CACHOEIRINHA (RS)", "15 - CURITIBA (PR)",
-        "16 - CACHOEIRINHA (RS)", "17 - ITAITINGA (CE)", "18 - SAO PAULO (SP)",
-        "19 - CAMPINAS (SP)", "20 - SAO JOSE DO RIO PRETO (SP)", "21 - GOIANIA (GO)",
-        "22 - JOAO PESSOA (PB)", "23 - SAO PAULO (SP)", "24 - FORTALEZA (CE)",
-        "25 - VILA VELHA (ES)", "26 - JOAO PESSOA (PB)", "27 - VILA VELHA (ES)",
-        "28 - CACHOEIRINHA (RS)", "29 - CURITIBA (PR)", "30 - PORTO ALEGRE (RS)",
-        "31 - BRASILIA (DF)", "32 - BELO HORIZONTE (MG)", "33 - SAO JOSE (SC)",
-        "34 - SAO PAULO (SP)", "35 - SALVADOR (BA)", "36 - NATAL (RN)",
-        "37 - BELEM (PA)", "38 - ANANINDEUA (PA)", "39 - MANAUS (AM)",
-        "40 - VILA VELHA (ES)", "41 - RECIFE (PE)", "42 - CAMPINAS (SP)",
-        "43 - UBERLANDIA (MG)", "44 - SAO JOSE DOS CAMPOS (SP)", "45 - PIRACICABA (SP)",
-        "46 - GUARULHOS (SP)", "47 - MANAUS (AM)", "48 - ITAJAI (SC)",
-        "49 - NAVEGANTES (SC)", "50 - OSASCO (SP)", "51 - RIO DE JANEIRO (RJ)",
-        "52 - EXTREMA (MG)", "53 - CUIABA (MT)", "54 - FLORIANOPOLIS (SC)",
-        "55 - CUIABA (MT)", "56 - SANTOS (SP)", "57 - TERESINA (PI)",
-        "58 - SOROCABA (SP)", "59 - SAO PAULO (SP)", "60 - SAO BERNARDO DO CAMPO (SP)",
-        "61 - RIO DE JANEIRO (RJ)", "62 - SAO PAULO (SP)", "63 - CAMPO GRANDE (MS)",
-        "64 - OSASCO (SP)", "65 - MACEIO (AL)", "66 - SAO PAULO (SP)",
-        "67 - JOINVILLE (SC)", "68 - LONDRINA (PR)", "69 - OSASCO (SP)",
-        "70 - GARUVA (SC)", "71 - VILA VELHA (ES)", "72 - CANOAS (RS)",
-        "73 - SIMOES FILHO (BA)", "74 - LAURO DE FREITAS (BA)", "75 - TERESINA (PI)",
-        "76 - CAJAMAR (SP)", "77 - NOVO HAMBURGO (RS)", "78 - ANANINDEUA (PA)",
-        "79 - PASSO FUNDO (RS)", "80 - FEIRA DE SANTANA (BA)", "81 - APARECIDA DE GOIANIA (GO)",
-        "82 - BRASILIA (DF)", "83 - ANAPOLIS (GO)", "84 - SAO JOSE DO RIO PRETO (SP)",
-        "85 - PORTO ALEGRE (RS)", "86 - FORTALEZA (CE)",
-    ]
-
-# ── ÁREAS ─────────────────────────────────────────────────────────────────────
-def ler_areas() -> list:
-    return [
-        "Controladoria", "Contabilidade", "Fiscal", "Auditoria", "Tesouraria",
-        "Crédito", "Cobrança", "Jurídico", "Prevenção e Perdas",
-        "TI - Sistemas", "TI - Infra", "TI - Digital", "TI - Governança",
-        "RH - DHO", "RH - Recrutamento", "RH - DP", "RH - Remuneração",
-        "Marketing", "E-Commerce", "SAC", "B2B",
-        "Logística - Planejamento", "Logística - Pós Venda", "Garantia",
-        "Compras Nacional", "Compras EOS", "Compras Eletro",
-        "Vendas - Filiais", "Vendas - Câmara", "Vendas - VRF",
-        "Indústria - Produção", "Indústria - Administração",
-        "Facilities", "Expansão", "Projetos",
+        "1 - PORTO ALEGRE (RS)","2 - OSASCO (SP)","3 - CURITIBA (PR)","4 - SAO PAULO (SP)",
+        "5 - OSASCO (SP)","6 - RECIFE (PE)","7 - RIBEIRAO PRETO (SP)","8 - RIO DE JANEIRO (RJ)",
+        "9 - JOAO PESSOA (PB)","10 - PORTO ALEGRE (RS)","11 - EXTREMA (MG)","12 - PORTO ALEGRE (RS)",
+        "13 - VITORIA (ES)","14 - CACHOEIRINHA (RS)","15 - CURITIBA (PR)","16 - CACHOEIRINHA (RS)",
+        "17 - ITAITINGA (CE)","18 - SAO PAULO (SP)","19 - CAMPINAS (SP)",
+        "20 - SAO JOSE DO RIO PRETO (SP)","21 - GOIANIA (GO)","22 - JOAO PESSOA (PB)",
+        "23 - SAO PAULO (SP)","24 - FORTALEZA (CE)","25 - VILA VELHA (ES)","26 - JOAO PESSOA (PB)",
+        "27 - VILA VELHA (ES)","28 - CACHOEIRINHA (RS)","29 - CURITIBA (PR)","30 - PORTO ALEGRE (RS)",
+        "31 - BRASILIA (DF)","32 - BELO HORIZONTE (MG)","33 - SAO JOSE (SC)","34 - SAO PAULO (SP)",
+        "35 - SALVADOR (BA)","36 - NATAL (RN)","37 - BELEM (PA)","38 - ANANINDEUA (PA)",
+        "39 - MANAUS (AM)","40 - VILA VELHA (ES)","41 - RECIFE (PE)","42 - CAMPINAS (SP)",
+        "43 - UBERLANDIA (MG)","44 - SAO JOSE DOS CAMPOS (SP)","45 - PIRACICABA (SP)",
+        "46 - GUARULHOS (SP)","47 - MANAUS (AM)","48 - ITAJAI (SC)","49 - NAVEGANTES (SC)",
+        "50 - OSASCO (SP)","51 - RIO DE JANEIRO (RJ)","52 - EXTREMA (MG)","53 - CUIABA (MT)",
+        "54 - FLORIANOPOLIS (SC)","55 - CUIABA (MT)","56 - SANTOS (SP)","57 - TERESINA (PI)",
+        "58 - SOROCABA (SP)","59 - SAO PAULO (SP)","60 - SAO BERNARDO DO CAMPO (SP)",
+        "61 - RIO DE JANEIRO (RJ)","62 - SAO PAULO (SP)","63 - CAMPO GRANDE (MS)","64 - OSASCO (SP)",
+        "65 - MACEIO (AL)","66 - SAO PAULO (SP)","67 - JOINVILLE (SC)","68 - LONDRINA (PR)",
+        "69 - OSASCO (SP)","70 - GARUVA (SC)","71 - VILA VELHA (ES)","72 - CANOAS (RS)",
+        "73 - SIMOES FILHO (BA)","74 - LAURO DE FREITAS (BA)","75 - TERESINA (PI)","76 - CAJAMAR (SP)",
+        "77 - NOVO HAMBURGO (RS)","78 - ANANINDEUA (PA)","79 - PASSO FUNDO (RS)",
+        "80 - FEIRA DE SANTANA (BA)","81 - APARECIDA DE GOIANIA (GO)","82 - BRASILIA (DF)",
+        "83 - ANAPOLIS (GO)","84 - SAO JOSE DO RIO PRETO (SP)","85 - PORTO ALEGRE (RS)",
+        "86 - FORTALEZA (CE)",
     ]
 
 # ── FRENTES ───────────────────────────────────────────────────────────────────
 def ler_frentes() -> list:
-    return ["Consumo", "Digital", "Facilities", "Financeiro", "Indústria", "Logística", "Produtividade", "Tecnologia"]
+    return ["Consumo","Digital","Facilities","Financeiro","Indústria","Logística","Produtividade","Tecnologia"]
 
 # ── AUTENTICAÇÃO ───────────────────────────────────────────────────────────────
 def autenticar(login, senha):
@@ -523,6 +472,14 @@ def autenticar(login, senha):
     return None
 
 # ── OPORTUNIDADES ──────────────────────────────────────────────────────────────
+def titulo_ja_existe(titulo, id_excluir=""):
+    docs = db_fire.collection("oportunidades").stream()
+    for doc in docs:
+        if doc.id == id_excluir: continue
+        if doc.to_dict().get("Título", "").strip().lower() == titulo.strip().lower():
+            return True
+    return False
+
 def ler_oportunidades() -> pd.DataFrame:
     docs = db_fire.collection("oportunidades").stream()
     lista = [{**doc.to_dict(), "ID": doc.id} for doc in docs]
@@ -545,20 +502,27 @@ def cadastrar_oportunidade(dados: dict, usuario: dict) -> str:
         "CC Dono": dados.get("cc_dono", ""),
         "Craque": usuario.get("nome", ""),
         "Filial": dados.get("filial", usuario.get("filial", "")),
-        "Área": dados.get("area_ideia", ""),
         "Frente de Negócio": dados.get("frente_automatica", ""),
         "Data Cadastro (N1)": hoje,
+        "Data Prevista N3": dados.get("data_prev_n3", ""),
+        "Data Prevista N4": dados.get("data_prev_n4", ""),
         "Total Estimado 2026": float(dados.get("ganho_2026", 0)),
         "Submetido Controladoria": False
     }
     doc_ref = db_fire.collection("oportunidades").add(nova)
-    return doc_ref[1].id[:6]
+    id_gerado = doc_ref[1].id
+    registrar_log(usuario, "CADASTRO", f"Nova oportunidade: {nova['Título']}", id_gerado)
+    return id_gerado
 
 def movimentar_nivel(id_, novo_nivel, usuario):
+    doc = db_fire.collection("oportunidades").document(id_).get()
+    nivel_anterior = doc.to_dict().get("Nível", "?") if doc.exists else "?"
     db_fire.collection("oportunidades").document(id_).update({"Nível": novo_nivel})
+    registrar_log(usuario, "MUDANÇA DE NÍVEL", f"{nivel_anterior} → {novo_nivel}", id_)
 
-def submeter_para_controladoria(id_):
+def submeter_para_controladoria(id_, usuario):
     db_fire.collection("oportunidades").document(id_).update({"Submetido Controladoria": True})
+    registrar_log(usuario, "SUBMETIDO CONTROLADORIA", "Enviado para validação N4", id_)
 
 def adicionar_comentario(id_, texto, usuario):
     hoje = datetime.now().strftime("%d/%m/%Y %H:%M")
@@ -567,9 +531,16 @@ def adicionar_comentario(id_, texto, usuario):
     comentario_atual = doc_ref.get().to_dict().get("Comentário da Semana", "")
     texto_final = (comentario_atual + f"\n[{hoje} - {autor}] {texto}").strip()
     doc_ref.update({"Comentário da Semana": texto_final})
+    registrar_log(usuario, "COMENTÁRIO", f"Comentário adicionado: {texto[:60]}...", id_)
+
+def editar_campos_oportunidade(id_, campos, usuario):
+    db_fire.collection("oportunidades").document(id_).update(campos)
+    campos_editados = ", ".join(campos.keys())
+    registrar_log(usuario, "EDIÇÃO DE CAMPOS", f"Campos editados: {campos_editados}", id_)
 
 def atualizar_oportunidade(id_, campos, usuario):
     db_fire.collection("oportunidades").document(id_).update(campos)
+    registrar_log(usuario, "ATUALIZAÇÃO", f"Campos atualizados: {', '.join(campos.keys())}", id_)
 
 # ── USUÁRIOS ───────────────────────────────────────────────────────────────────
 def cadastrar_usuario_manual(login, nome, perfil, email, filial, area, frente, senha):
@@ -593,7 +564,7 @@ def ler_usuarios():
     if not lista: return pd.DataFrame()
     return pd.DataFrame(lista)
 
-def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_senha):
+def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_senha, usuario_logado=None):
     atualizacao = {
         "nome": nome, "Nome Completo": nome, "email": email,
         "perfil": perfil, "Perfil": perfil,
@@ -602,9 +573,13 @@ def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_
     }
     if nova_senha.strip(): atualizacao["senha"] = nova_senha.strip()
     db_fire.collection("usuarios").document(login).update(atualizacao)
+    if usuario_logado:
+        registrar_log(usuario_logado, "EDIÇÃO USUÁRIO", f"Usuário editado: {login}")
 
-def excluir_usuario(login):
+def excluir_usuario(login, usuario_logado=None):
     db_fire.collection("usuarios").document(login).delete()
+    if usuario_logado:
+        registrar_log(usuario_logado, "EXCLUSÃO USUÁRIO", f"Usuário excluído: {login}")
 
 # ── ORÇAMENTO ──────────────────────────────────────────────────────────────────
 def ler_orcamento():
@@ -643,5 +618,6 @@ def importar_base_excel(df, u):
             "Submetido Controladoria": False, "Ativo": True
         }
         db_fire.collection("oportunidades").document(id_unico).set(nova_ideia)
+    registrar_log(u, "IMPORTAÇÃO EXCEL", f"{len(df)} linhas processadas")
 
 # NÃO MEXER NO CÓDIGO QUE ESTÁ DANDO CERTO
