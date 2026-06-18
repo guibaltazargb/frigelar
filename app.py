@@ -7,7 +7,7 @@ import os
 import dados as db
 import io
 
-st.set_page_config(page_title="Programa Essência", page_icon="💡", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Programa Essência", page_icon="Logo Essencia.png", layout="wide", initial_sidebar_state="expanded")
 
 def obter_bg_base64(caminho_imagem):
     if os.path.exists(caminho_imagem):
@@ -45,6 +45,15 @@ st.markdown("""
     .badge-n4 { background: #D1FAE5; color: #14532D; }
 </style>
 """, unsafe_allow_html=True)
+
+if st.session_state.get("usuario"):
+    logo_base64 = obter_bg_base64("barra_frigelar.png")
+    if logo_base64:
+        st.markdown(f"""
+        <div style="margin-bottom:16px;">
+            <img src="data:image/png;base64,{logo_base64}" style="width:100%; display:block;">
+        </div>
+        """, unsafe_allow_html=True)
 
 if not st.session_state.get("usuario"):
     st.markdown(f"""
