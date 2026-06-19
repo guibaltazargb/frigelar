@@ -4,7 +4,13 @@ from datetime import datetime, date
 import base64, time, os, io
 import dados as db
 
-st.set_page_config(page_title="Programa Essência", page_icon="💡", layout="wide", initial_sidebar_state="expanded")
+_favicon = obter_bg_base64("barra_frigelar.png") if os.path.exists("barra_frigelar.png") else None
+st.set_page_config(
+    page_title="Programa Essência",
+    page_icon="barra_frigelar.png" if os.path.exists("barra_frigelar.png") else "💡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
 def obter_bg_base64(caminho):
     if os.path.exists(caminho):
@@ -38,8 +44,15 @@ section[data-testid="stSidebar"]{background-color:#0f172a!important;}
 .kpi-value{font-size:26px;font-weight:700;color:#0f172a;margin-top:8px;}
 .kpi-value-green{font-size:26px;font-weight:700;color:#16a34a;margin-top:8px;}
 .kpi-value-orange{font-size:26px;font-weight:700;color:#f97316;margin-top:8px;}
-/* Cabeçalho tabela SCO */
-.sco-header th{background-color:#0f172a!important;color:#ffffff!important;font-weight:700!important;}
+/* Cabeçalho tabela SCO — aplica em todos os dataframes */
+thead tr th {
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+thead tr th div {
+    color: #ffffff !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -121,30 +134,43 @@ def montar_tabela_sco(df_in):
     return df_d
 
 def gerar_excel_sco(df_in) -> bytes:
-    """Gera Excel com todas as colunas incluindo meses absolutos"""
+    """Gera Excel com todas as colunas do documento + meses absolutos"""
     df = df_in.copy()
     meses_abs = db.gerar_colunas_meses_absolutos()
     for m in meses_abs:
         if m not in df.columns: df[m] = 0.0
         else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
-    for i in range(1,13):
+    for i in range(1, 13):
         col = f"M{i}"
         if col not in df.columns: df[col] = 0.0
+        else: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    # colunas prioritárias na frente, depois extras
+    colunas_priority = [
+        "Título","Descrição","Nível","Grupo Contábil","Frente de Negócio",
+        "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono","Filial","Craque",
+        "Comentário da Semana","Justificativa Cancelamento",
+        "Data Realizada N1","Data Prevista N2","Data Realizada N2",
+        "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
+        "Total Estimado 2026",
+        "M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12",
+    ] + meses_abs
+    extras = [c for c in df.columns if c not in colunas_priority and not c.startswith("_")]
+    todas = [c for c in colunas_priority if c in df.columns] + [c for c in extras if c in df.columns]
+
+    cols_laranja = {
+        "Data Prevista N2","Data Prevista N3","Data Prevista N4",
+        "Total Estimado 2026","M1","M2","M3","M4","M5","M6",
+        "M7","M8","M9","M10","M11","M12"
+    } | set(meses_abs)
+
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
-        colunas_export = ["Título","Nível","Grupo Contábil","Frente de Negócio",
-            "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono","Filial","Craque",
-            "Data Realizada N1","Data Prevista N2","Data Realizada N2",
-            "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
-            "Total Estimado 2026"] + meses_abs
-        cols = [c for c in colunas_export if c in df.columns]
-        df[cols].to_excel(writer, index=False, sheet_name="SCO")
+        df[todas].to_excel(writer, index=False, sheet_name="SCO")
         wb = writer.book; ws = writer.sheets["SCO"]
-        fmt_azul = wb.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff","border":1})
-        fmt_laranja = wb.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff","border":1})
-        cols_laranja = {"Data Prevista N2","Data Prevista N3","Data Prevista N4",
-                        "Total Estimado 2026"} | set(meses_abs)
-        for i, col in enumerate(cols):
+        fmt_azul    = wb.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff","border":1,"text_wrap":True})
+        fmt_laranja = wb.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff","border":1,"text_wrap":True})
+        for i, col in enumerate(todas):
             fmt = fmt_laranja if col in cols_laranja else fmt_azul
             ws.write(0, i, col, fmt)
             ws.set_column(i, i, max(len(col)+2, 14))
@@ -263,19 +289,19 @@ def pagina_sco():
     col_f = st.columns(4)
     with col_f[0]: f_status = st.multiselect("Status", opt("Nível"), default=[], key="f_status", placeholder="Todos")
     with col_f[1]: f_frente = st.multiselect("Frente", opt("Frente de Negócio"), default=[], key="f_frente", placeholder="Todas")
-    with col_f[2]: f_gc = st.multiselect("Grupo Contábil", ["ADM","COM","IND"], default=[], key="f_gc", placeholder="Todos")
+    with col_f[2]: f_gc     = st.multiselect("Grupo Contábil", ["ADM","COM","IND"], default=[], key="f_gc", placeholder="Todos")
     with col_f[3]: f_filial = st.multiselect("Filial", opt("Filial"), default=[], key="f_filial", placeholder="Todas")
 
     col_f2 = st.columns(4)
-    with col_f2[0]: f_dono = st.multiselect("Dono", opt("Dono da Oportunidade"), default=[], key="f_dono", placeholder="Todos")
-    with col_f2[1]: f_cc = st.multiselect("CC Dono", opt("CC Dono"), default=[], key="f_cc", placeholder="Todos")
+    with col_f2[0]: f_dono   = st.multiselect("Dono", opt("Dono da Oportunidade"), default=[], key="f_dono", placeholder="Todos")
+    with col_f2[1]: f_cc     = st.multiselect("CC Dono", opt("CC Dono"), default=[], key="f_cc", placeholder="Todos")
     with col_f2[2]: f_craque = st.multiselect("Craque", opt("Craque"), default=[], key="f_craque", placeholder="Todos")
-    with col_f2[3]: f_conta = st.multiselect("Conta Orç.", opt("Conta Orçamento"), default=[], key="f_conta", placeholder="Todas")
+    with col_f2[3]: f_conta  = st.multiselect("Conta Orç.", opt("Conta Orçamento"), default=[], key="f_conta", placeholder="Todas")
 
     col_txt = st.columns(3)
-    with col_txt[0]: txt_tit = st.text_input("🔍 Título", key="txt_tit")
+    with col_txt[0]: txt_tit  = st.text_input("🔍 Título", key="txt_tit")
     with col_txt[1]: txt_desc = st.text_input("🔍 Descrição", key="txt_desc")
-    with col_txt[2]: txt_cc = st.text_input("🔍 Conta Contábil", key="txt_cc")
+    with col_txt[2]: txt_cc   = st.text_input("🔍 Conta Contábil", key="txt_cc")
 
     if st.button("🔄 Limpar Filtros", key="limpar"):
         for k in ["f_status","f_frente","f_gc","f_filial","f_dono","f_cc","f_craque","f_conta","txt_tit","txt_desc","txt_cc"]:
@@ -283,37 +309,41 @@ def pagina_sco():
         st.rerun()
 
     df_f = df.copy()
-    if f_status: df_f = df_f[df_f["Nível"].isin(f_status)]
-    if f_frente: df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
+    if f_status:  df_f = df_f[df_f["Nível"].isin(f_status)]
+    if f_frente:  df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
     if f_gc and "Grupo Contábil" in df_f.columns: df_f = df_f[df_f["Grupo Contábil"].isin(f_gc)]
-    if f_filial: df_f = df_f[df_f["Filial"].isin(f_filial)]
-    if f_dono: df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
-    if f_cc: df_f = df_f[df_f["CC Dono"].isin(f_cc)]
-    if f_craque: df_f = df_f[df_f["Craque"].isin(f_craque)]
-    if f_conta: df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
-    if txt_tit.strip(): df_f = df_f[df_f["Título"].astype(str).str.contains(txt_tit,case=False,na=False)]
+    if f_filial:  df_f = df_f[df_f["Filial"].isin(f_filial)]
+    if f_dono:    df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
+    if f_cc:      df_f = df_f[df_f["CC Dono"].isin(f_cc)]
+    if f_craque:  df_f = df_f[df_f["Craque"].isin(f_craque)]
+    if f_conta:   df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
+    if txt_tit.strip():  df_f = df_f[df_f["Título"].astype(str).str.contains(txt_tit,case=False,na=False)]
     if txt_desc.strip(): df_f = df_f[df_f.get("Descrição",pd.Series(dtype=str)).astype(str).str.contains(txt_desc,case=False,na=False)]
-    if txt_cc.strip(): df_f = df_f[df_f["Conta Contábil"].astype(str).str.contains(txt_cc,case=False,na=False)]
+    if txt_cc.strip():   df_f = df_f[df_f["Conta Contábil"].astype(str).str.contains(txt_cc,case=False,na=False)]
 
-    # sinaliza atrasadas
+    # sinaliza atrasadas — reset de índice para alinhar corretamente
+    df_f = df_f.reset_index(drop=True)
     df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
 
     st.markdown(f"**{len(df_f)} oportunidade(s)** | 🟡 = atrasada em relação à data prevista")
 
-    df_disp = montar_tabela_sco(df_f)
-    # destaca atrasadas via background
+    df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
+    atrasadas = df_f["_atrasada"].values  # array booleano alinhado por posição
+
     def highlight_atraso(row):
-        idx = row.name
-        if idx < len(df_f) and df_f.iloc[idx]["_atrasada"]:
-            return ["background-color: #fef9c3"] * len(row)
+        if atrasadas[row.name]:
+            return ["background-color: #fef9c3; color: #713f12;"] * len(row)
         return [""] * len(row)
 
-    st.dataframe(df_disp.style.apply(highlight_atraso, axis=1),
-                 use_container_width=True, hide_index=True)
+    st.dataframe(
+        df_disp.style.apply(highlight_atraso, axis=1),
+        use_container_width=True,
+        hide_index=True
+    )
 
-    # botão exportar
+    # botão exportar — todas as colunas do documento
     excel_bytes = gerar_excel_sco(df_f)
-    st.download_button("📥 Exportar Excel (com meses absolutos)", data=excel_bytes,
+    st.download_button("📥 Exportar Excel", data=excel_bytes,
         file_name=f"SCO_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.ms-excel")
 
@@ -501,12 +531,12 @@ def pagina_painel_integrado():
     niveis_opcoes = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
     cf1,cf2 = st.columns(2)
     with cf1: f_frente_p = st.multiselect("Filtrar por Frente",frentes,default=[],key="pf_frente",placeholder="Todas")
-    with cf2: f_nivel_p = st.multiselect("Filtrar por Nível",niveis_opcoes,default=[],key="pf_nivel",placeholder="Todos")
+    with cf2: f_nivel_p  = st.multiselect("Filtrar por Nível",niveis_opcoes,default=[],key="pf_nivel",placeholder="Todos")
 
     df_p = df.copy()
     if u["perfil"]=="lider": df_p = df_p[df_p["Frente de Negócio"].str.lower()==u["frente"].lower()]
     if f_frente_p: df_p = df_p[df_p["Frente de Negócio"].isin(f_frente_p)]
-    if f_nivel_p: df_p = df_p[df_p["Nível"].isin(f_nivel_p)]
+    if f_nivel_p:  df_p = df_p[df_p["Nível"].isin(f_nivel_p)]
 
     df_ativas = df_p[df_p["Nível"]!="N0 - Cancelada"]
     orc_data = db.ler_orcamento()
@@ -610,12 +640,12 @@ def pagina_admin():
         with st.container(border=True):
             c1,c2 = st.columns(2)
             with c1:
-                login = st.text_input("Login",key="nl")
-                email = st.text_input("E-mail",key="ne")
-                nome = st.text_input("Nome Completo",key="nn")
+                login  = st.text_input("Login",key="nl")
+                email  = st.text_input("E-mail",key="ne")
+                nome   = st.text_input("Nome Completo",key="nn")
                 perfil = st.selectbox("Perfil",["craque","lider","adm","diretoria"],key="np")
             with c2:
-                senha = st.text_input("Senha *",type="password",key="ns")
+                senha  = st.text_input("Senha *",type="password",key="ns")
                 frente = st.selectbox("Frente",[""] + db.ler_frentes(),key="nfr")
                 filial = st.selectbox("Filial",[""] + db.ler_filiais(),key="nfi")
             if st.button("Cadastrar Usuário",use_container_width=True,type="primary"):
