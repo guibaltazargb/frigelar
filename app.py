@@ -4,7 +4,6 @@ from datetime import datetime, date
 import base64, time, os, io
 import dados as db
 
-_favicon = obter_bg_base64("Logo_Essencia.png") if os.path.exists("Logo_Essencia.png") else None
 st.set_page_config(
     page_title="Programa Essência",
     page_icon="Logo_Essencia.png" if os.path.exists("Logo_Essencia.png") else "💡",
