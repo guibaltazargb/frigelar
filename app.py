@@ -7,7 +7,7 @@ import dados as db
 _favicon = obter_bg_base64("barra_frigelar.png") if os.path.exists("barra_frigelar.png") else None
 st.set_page_config(
     page_title="Programa Essência",
-    page_icon="barra_frigelar.png" if os.path.exists("barra_frigelar.png") else "💡",
+    page_icon="barra_frigelar.png" if os.path.exists("Logo Essencia.png") else "💡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
