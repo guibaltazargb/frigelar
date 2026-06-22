@@ -554,25 +554,27 @@ def pagina_painel_integrado():
 
         st.markdown("<br>", unsafe_allow_html=True)
 
-        def plotly_bar(x_vals, y_vals, title, color, fmt="qtd"):
-            texts = [f"{int(v):,}".replace(",",".") if fmt=="qtd" else brl_k(v) for v in y_vals]
-            fig = go.Figure(go.Bar(
-                x=x_vals, y=y_vals, marker_color=color,
-                text=texts, textposition="outside",
-                textfont=dict(family="Segoe UI", size=11, color="#0f172a")
-            ))
-            fig.update_layout(
-                title=dict(text=title, font=dict(family="Segoe UI", size=14, color="#0f172a")),
-                font=dict(family="Segoe UI"),
-                plot_bgcolor="white", paper_bgcolor="white",
-                margin=dict(t=50, b=30, l=10, r=10),
-                yaxis=dict(showgrid=True, gridcolor="#f1f5f9", zeroline=False),
-                xaxis=dict(tickfont=dict(size=11)),
-                height=320,
-            )
-            if y_vals:
-                fig.update_yaxis(range=[0, max(y_vals)*1.25] if max(y_vals)>0 else [0,1])
-            return fig
+    def plotly_bar(x_vals, y_vals, title, color, fmt="qtd"):
+        if not x_vals or not y_vals:
+            return go.Figure()
+        texts = [f"{int(v):,}".replace(",",".") if fmt=="qtd" else brl_k(v) for v in y_vals]
+        y_max = max(y_vals) if y_vals else 1
+        fig = go.Figure(go.Bar(
+            x=x_vals, y=y_vals, marker_color=color,
+            text=texts, textposition="outside",
+            textfont=dict(family="Segoe UI", size=11, color="#0f172a")
+        ))
+        fig.update_layout(
+            title=dict(text=title, font=dict(family="Segoe UI", size=14, color="#0f172a")),
+            font=dict(family="Segoe UI"),
+            plot_bgcolor="white", paper_bgcolor="white",
+            margin=dict(t=50, b=30, l=10, r=10),
+            yaxis=dict(showgrid=True, gridcolor="#f1f5f9", zeroline=False,
+                       range=[0, y_max*1.25] if y_max > 0 else [0,1]),
+            xaxis=dict(tickfont=dict(size=11)),
+            height=320,
+        )
+        return fig
 
         # Nível
         vc = df_p["Nível"].value_counts()
