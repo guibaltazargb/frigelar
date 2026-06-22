@@ -128,7 +128,7 @@ def montar_tabela_sco(df_in):
             df[c] = df[c].apply(fmt_data_curta)
 
     # Título SEMPRE primeiro, depois o restante
-    colunas_base = ["Título","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
+    colunas_base = ["Título","Descrição","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
         "Conta Orçamento","Conta Contábil",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
