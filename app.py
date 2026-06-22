@@ -6,7 +6,7 @@ import dados as db
 
 st.set_page_config(
     page_title="Programa Essência",
-    page_icon="barra_frigelar.png" if os.path.exists("barra_frigelar.png") else "💡",
+    page_icon="Logo_Essencia.png" if os.path.exists("Logo_Essencia.png") else "💡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -99,6 +99,15 @@ def esta_atrasada(row):
     return False
 
 # ── HELPER: monta tabela SCO ──────────────────────────────────────────────────
+def fmt_data_curta(val):
+    """Converte dd/mm/aaaa → mm/aaaa. Retorna vazio se inválido."""
+    s = str(val).strip()
+    if not s or s == "nan": return ""
+    partes = s.split("/")
+    if len(partes) >= 3: return f"{partes[1]}/{partes[2]}"
+    if len(partes) == 2: return s  # já mm/aaaa
+    return s
+
 def montar_tabela_sco(df_in):
     df = df_in.copy()
     for i in range(1,13):
@@ -111,22 +120,35 @@ def montar_tabela_sco(df_in):
     df["3°TRI"] = df["M7"]+df["M8"]+df["M9"]
     df["4°TRI"] = df["M10"]+df["M11"]+df["M12"]
 
+    # formata datas para mm/aaaa
+    cols_data = ["Data Realizada N1","Data Prevista N2","Data Realizada N2",
+                 "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4"]
+    for c in cols_data:
+        if c in df.columns:
+            df[c] = df[c].apply(fmt_data_curta)
+
+    # Título SEMPRE primeiro, depois o restante
     colunas_base = ["Título","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
         "Conta Orçamento","Conta Contábil",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
         "1°TRI","2°TRI","3°TRI","4°TRI","Total Estimado 2026",
-        "Dono da Oportunidade","CC Dono","Filial","Craque"]
+        "Dono da Oportunidade","CC Dono","Filial","Craque","Area Craque"]
     cols = [c for c in colunas_base if c in df.columns]
+    # garante Título mesmo se não estiver em colunas_base por algum motivo
+    if "Título" not in cols and "Título" in df.columns:
+        cols = ["Título"] + cols
+
     df_d = df[cols].copy().rename(columns={
-        "Título":"Descrição da Oportunidade","Nível":"Status",
-        "Frente de Negócio":"Frente","Total Estimado 2026":"Total",
+        "Título":"Título da Oportunidade","Nível":"Status",
+        "Frente de Negócio":"Frente","Total Estimado 2026":"Total 2026",
         "Dono da Oportunidade":"Dono","Data Realizada N1":"N1 (Real)",
         "Data Prevista N2":"N2 (Prev)","Data Realizada N2":"N2 (Real)",
         "Data Prevista N3":"N3 (Prev)","Data Realizada N3":"N3 (Real)",
         "Data Prevista N4":"N4 (Prev)","Data Realizada N4":"N4 (Real)",
+        "Area Craque":"Área Craque",
     })
-    for col in ["1°TRI","2°TRI","3°TRI","4°TRI","Total"]:
+    for col in ["1°TRI","2°TRI","3°TRI","4°TRI","Total 2026"]:
         if col in df_d.columns:
             df_d[col] = df_d[col].apply(lambda v: brl_k(v) if v != "" else "R$ 0")
     return df_d
@@ -265,7 +287,8 @@ def pagina_cadastro():
                     "dono":dono,"cc_dono":cc_dono,"conta_orc":conta_orc_sel,
                     "conta_cont":conta_cont_sel.split(" - ",1)[-1],
                     "filial":filial_sel,"frente_automatica":frente_det,
-                    "ganho_2026":ganho,"data_prev_n3":dpn3,"data_prev_n4":dpn4
+                    "ganho_2026":ganho,"data_prev_n3":dpn3,"data_prev_n4":dpn4,
+                    "area_craque": u.get("area_craque","")
                 }, u)
                 st.success("Oportunidade enviada para aprovação do Comitê (N1)!"); time.sleep(1.5); st.rerun()
 
@@ -323,10 +346,14 @@ def pagina_sco():
     df_f = df_f.reset_index(drop=True)
     df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
 
-    st.markdown(f"**{len(df_f)} oportunidade(s)**")
+    # subtotal considerando filtros
+    total_filtrado = pd.to_numeric(df_f["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
+    col_info, col_total = st.columns([3,1])
+    with col_info: st.markdown(f"**{len(df_f)} oportunidade(s) filtrada(s)**")
+    with col_total: st.markdown(f"**Subtotal 2026: {brl_k(total_filtrado)}**")
 
     df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
-    atrasadas = df_f["_atrasada"].values  # array booleano alinhado por posição
+    atrasadas = df_f["_atrasada"].values
 
     def highlight_atraso(row):
         if atrasadas[row.name]:
@@ -666,6 +693,44 @@ def pagina_painel_integrado():
         evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
         st.markdown("**Evolução por Semana de Cadastro**")
         st.bar_chart(evo)
+    with tab_ger:
+        if u["perfil"]=="adm":
+            with st.expander("⚙️ Ajustar Metas Orçadas"):
+                with st.form("form_orc"):
+                    cols_orc = st.columns(len(frentes))
+                    vals_orc = {f: cols_orc[i].number_input(f, value=float(orc_data.get(f,0.0)), step=10000.0) for i,f in enumerate(frentes)}
+                    if st.form_submit_button("Salvar", type="primary"):
+                        db.salvar_orcamento(vals_orc); st.success("Atualizado!"); time.sleep(1); st.rerun()
+
+        relatorio = []
+        for f in frentes:
+            df_f2 = df_p[df_p["Frente de Negócio"]==f]
+            n1 = df_f2[df_f2["Nível"]=="N1 - Ideia"]["Total Estimado 2026"].sum()
+            n2 = df_f2[df_f2["Nível"]=="N2 - Planejamento"]["Total Estimado 2026"].sum()
+            n3 = df_f2[df_f2["Nível"]=="N3 - Execução"]["Total Estimado 2026"].sum()
+            n4 = df_f2[df_f2["Nível"]=="N4 - Implementado"]["Total Estimado 2026"].sum()
+            total = n1+n2+n3+n4
+            orc = orc_data.get(f, 0.0)
+            relatorio.append({
+                "Frente": f,
+                "N1 - Ideia": brl_k(n1),
+                "N2 - Planejamento": brl_k(n2),
+                "N3 - Execução": brl_k(n3),
+                "N4 - Implementado": brl_k(n4),
+                "Total": brl_k(total),
+                "Orçado": brl_k(orc),
+                "% Ating. (N4/Orç.)": f"{(n4/orc*100) if orc>0 else 0:.1f}%"
+            })
+        st.dataframe(pd.DataFrame(relatorio), use_container_width=True, hide_index=True)
+
+    with tab_excel:
+        for i in range(1,13):
+            if f"M{i}" not in df_p.columns: df_p[f"M{i}"] = 0.0
+            else: df_p[f"M{i}"] = pd.to_numeric(df_p[f"M{i}"], errors="coerce").fillna(0.0)
+        excel_p = gerar_excel_sco(df_p)
+        st.download_button("📥 Download Excel", data=excel_p,
+            file_name=f"Base_{datetime.now().strftime('%Y%m%d')}.xlsx",
+            mime="application/vnd.ms-excel", type="primary")
 
 
 # ── LOG ────────────────────────────────────────────────────────────────────────
@@ -707,12 +772,14 @@ def pagina_admin():
                 nome   = st.text_input("Nome Completo",key="nn")
                 perfil = st.selectbox("Perfil",["craque","lider","adm","diretoria"],key="np")
             with c2:
-                senha  = st.text_input("Senha *",type="password",key="ns")
-                frente = st.selectbox("Frente",[""] + db.ler_frentes(),key="nfr")
-                filial = st.selectbox("Filial",[""] + db.ler_filiais(),key="nfi")
+                senha      = st.text_input("Senha *",type="password",key="ns")
+                frente     = st.selectbox("Frente",[""] + db.ler_frentes(),key="nfr")
+                filial     = st.selectbox("Filial",[""] + db.ler_filiais(),key="nfi")
+                area_craque = st.text_input("Área Craque (para perfil craque)",key="nac",
+                    help="Identifica a área de responsabilidade do craque. Ex: Controladoria, TI, Logística CD")
             if st.button("Cadastrar Usuário",use_container_width=True,type="primary"):
                 if login.strip() and nome.strip() and senha.strip():
-                    db.cadastrar_usuario_manual(login,nome,perfil,email,filial,"",frente,senha)
+                    db.cadastrar_usuario_manual(login,nome,perfil,email,filial,"",frente,senha,area_craque)
                     db.registrar_log(u,"CADASTRO USUÁRIO",f"Novo: {login}")
                     st.success(f"Usuário '{login}' criado!")
                 else: st.error("Preencha Login, Nome e Senha.")
@@ -729,13 +796,14 @@ def pagina_admin():
                     ee = c1.text_input("E-mail",value=d.get("email",""))
                     lp = ["craque","lider","adm","diretoria"]
                     ep = c1.selectbox("Perfil",lp,index=lp.index(d.get("perfil","craque")) if d.get("perfil","craque") in lp else 0)
+                    eac = c1.text_input("Área Craque",value=d.get("area_craque",""))
                     lf = [""]+db.ler_frentes()
                     ef = c2.selectbox("Frente",lf,index=lf.index(d.get("frente","")) if d.get("frente","") in lf else 0)
                     lfil = [""]+db.ler_filiais()
                     efil = c2.selectbox("Filial",lfil,index=lfil.index(d.get("filial","")) if d.get("filial","") in lfil else 0)
                     es = c2.text_input("Nova Senha (em branco = manter)",type="password")
                     if st.form_submit_button("Salvar",type="primary"):
-                        db.atualizar_usuario_completo(alvo,en,ee,ep,ef,efil,es,u)
+                        db.atualizar_usuario_completo(alvo,en,ee,ep,ef,efil,es,u,eac)
                         st.success("Atualizado!"); time.sleep(1); st.rerun()
                 st.markdown("<br>",unsafe_allow_html=True)
                 with st.container(border=True):
