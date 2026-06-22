@@ -3,10 +3,12 @@ import pandas as pd
 from datetime import datetime, date
 import base64, time, os, io
 import dados as db
+import plotly.graph_objects as go
 
+_favicon = obter_bg_base64("barra_frigelar.png") if os.path.exists("barra_frigelar.png") else None
 st.set_page_config(
     page_title="Programa Essência",
-    page_icon="Logo_Essencia.png" if os.path.exists("Logo_Essencia.png") else "💡",
+    page_icon="barra_frigelar.png" if os.path.exists("barra_frigelar.png") else "💡",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -21,8 +23,7 @@ bg_base64 = obter_bg_base64("image_7e68ea.jpg")
 # ── CSS GLOBAL ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-html,body,[class*="css"]{font-family:'Plus Jakarta Sans',sans-serif;}
+html,body,[class*="css"]{font-family:'Segoe UI','Segoe UI Web (West European)',sans-serif !important;}
 .fade-in{animation:fadeIn 0.5s forwards;}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
 section[data-testid="stSidebar"] div[role="radiogroup"] label>div:first-child{display:none!important;}
@@ -324,7 +325,7 @@ def pagina_sco():
     df_f = df_f.reset_index(drop=True)
     df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
 
-    st.markdown(f"**{len(df_f)} oportunidade(s)** | 🟡 = atrasada em relação à data prevista")
+    st.markdown(f"**{len(df_f)} oportunidade(s)**")
 
     df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
     atrasadas = df_f["_atrasada"].values  # array booleano alinhado por posição
@@ -552,25 +553,86 @@ def pagina_painel_integrado():
         c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_k(total_orcado)}</div></div>',unsafe_allow_html=True)
         c5.markdown(f'<div class="kpi-container"><div class="kpi-title">Realizado vs Orçado</div><div class="kpi-value">{(total_realizado/total_orcado*100) if total_orcado>0 else 0:.1f}%</div></div>',unsafe_allow_html=True)
 
-        g1,g2 = st.columns(2)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        def plotly_bar(x_vals, y_vals, title, color, fmt="qtd"):
+            texts = [f"{int(v):,}".replace(",",".") if fmt=="qtd" else brl_k(v) for v in y_vals]
+            fig = go.Figure(go.Bar(
+                x=x_vals, y=y_vals, marker_color=color,
+                text=texts, textposition="outside",
+                textfont=dict(family="Segoe UI", size=11, color="#0f172a")
+            ))
+            fig.update_layout(
+                title=dict(text=title, font=dict(family="Segoe UI", size=14, color="#0f172a")),
+                font=dict(family="Segoe UI"),
+                plot_bgcolor="white", paper_bgcolor="white",
+                margin=dict(t=50, b=30, l=10, r=10),
+                yaxis=dict(showgrid=True, gridcolor="#f1f5f9", zeroline=False),
+                xaxis=dict(tickfont=dict(size=11)),
+                height=320,
+            )
+            fig.update_yaxis(range=[0, max(y_vals)*1.25] if max(y_vals)>0 else [0,1])
+            return fig
+
+        # Nível
+        vc = df_p["Nível"].value_counts()
+        vv = df_p.groupby("Nível")["Total Estimado 2026"].sum()
+        g1, g2 = st.columns(2)
         with g1:
-            st.markdown("**Distribuição por Nível**")
-            vc = df_p["Nível"].value_counts()
-            chart_df = pd.DataFrame({"Nível":vc.index,"Qtd":vc.values})
-            st.bar_chart(chart_df.set_index("Nível"), color="#185FA5")
+            st.plotly_chart(plotly_bar(vc.index.tolist(), vc.values.tolist(), "Ideias por Nível", "#185FA5", "qtd"), use_container_width=True)
         with g2:
-            st.markdown("**Potencial por Frente (R$ mil)**")
-            gf = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()/1000
-            st.bar_chart(gf, color="#16a34a")
+            st.plotly_chart(plotly_bar(vv.index.tolist(), vv.values.tolist(), "Valores por Nível", "#185FA5", "brl"), use_container_width=True)
+
+        # Frente
+        fi = df_ativas.groupby("Frente de Negócio").size()
+        fv = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
+        g3, g4 = st.columns(2)
+        with g3:
+            st.plotly_chart(plotly_bar(fi.index.tolist(), fi.values.tolist(), "Ideias por Frente", "#16a34a", "qtd"), use_container_width=True)
+        with g4:
+            st.plotly_chart(plotly_bar(fv.index.tolist(), fv.values.tolist(), "Valores por Frente", "#16a34a", "brl"), use_container_width=True)
 
     with tab_evo:
         df_ev = df_ativas.copy()
         df_ev["Semana"] = df_ev["Data Cadastro (N1)"].apply(
             lambda x: f"Sem.{x.split('/')[1]}/{x.split('/')[2]}" if pd.notna(x) and x and "/" in str(x) else "?")
-        evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)/1000
-        st.markdown("**Evolução por Semana (R$ mil)**")
-        st.bar_chart(evo)
-        st.caption("Valores em R$ mil. Cada barra representa o total acumulado por status na semana de cadastro.")
+        evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
+        semanas = sorted(evo.index.tolist())
+        niveis_cores = {
+            "N1 - Ideia":"#93c5fd","N2 - Planejamento":"#6ee7b7",
+            "N3 - Execução":"#fcd34d","N4 - Implementado":"#16a34a","N0 - Cancelada":"#fca5a5"
+        }
+        fig_evo = go.Figure()
+        totais_por_semana = evo.sum(axis=1)
+        for nivel in evo.columns:
+            cor = niveis_cores.get(nivel, "#94a3b8")
+            fig_evo.add_trace(go.Bar(
+                name=nivel, x=semanas, y=evo[nivel].tolist(),
+                marker_color=cor,
+                text=[brl_k(v) if v > 0 else "" for v in evo[nivel].tolist()],
+                textposition="inside",
+                textfont=dict(family="Segoe UI", size=10, color="#0f172a"),
+            ))
+        # etiqueta de total no topo de cada coluna empilhada
+        fig_evo.add_trace(go.Scatter(
+            x=semanas, y=totais_por_semana.tolist(),
+            mode="text",
+            text=[brl_k(v) for v in totais_por_semana],
+            textposition="top center",
+            textfont=dict(family="Segoe UI", size=11, color="#0f172a", ),
+            showlegend=False, name="Total"
+        ))
+        fig_evo.update_layout(
+            barmode="stack",
+            title=dict(text="Evolução por Semana de Cadastro", font=dict(family="Segoe UI", size=14, color="#0f172a")),
+            font=dict(family="Segoe UI"),
+            plot_bgcolor="white", paper_bgcolor="white",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(t=80, b=30, l=10, r=10),
+            yaxis=dict(showgrid=True, gridcolor="#f1f5f9"),
+            height=400,
+        )
+        st.plotly_chart(fig_evo, use_container_width=True)
 
     with tab_ger:
         if u["perfil"]=="adm":
