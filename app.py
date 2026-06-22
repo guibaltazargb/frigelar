@@ -3,8 +3,8 @@ import pandas as pd
 from datetime import datetime, date
 import base64, time, os, io
 import dados as db
-import plotly.graph_objects as go
 
+_favicon = obter_bg_base64("barra_frigelar.png") if os.path.exists("barra_frigelar.png") else None
 st.set_page_config(
     page_title="Programa Essência",
     page_icon="barra_frigelar.png" if os.path.exists("barra_frigelar.png") else "💡",
@@ -542,7 +542,9 @@ def pagina_painel_integrado():
     total_orcado = sum(orc_data.get(f,0.0) for f in frentes)
     total_realizado = df_p[df_p["Nível"]=="N4 - Implementado"]["Total Estimado 2026"].sum()
 
-    tab_dash,tab_evo,tab_ger,tab_excel = st.tabs(["📊 Dashboard","📈 Evolução","📑 Rel. Gerencial","📥 Base Excel"])
+    tab_dash, tab_matriz, tab_evo, tab_ger, tab_excel = st.tabs([
+        "📊 Dashboard", "📋 Matriz & Comparativo", "📈 Evolução", "📑 Rel. Gerencial", "📥 Base Excel"
+    ])
 
     with tab_dash:
         c1,c2,c3,c4,c5 = st.columns(5)
@@ -551,125 +553,121 @@ def pagina_painel_integrado():
         c3.markdown(f'<div class="kpi-container"><div class="kpi-title">Implementadas (N4)</div><div class="kpi-value">{len(df_p[df_p["Nível"]=="N4 - Implementado"])}</div></div>',unsafe_allow_html=True)
         c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_k(total_orcado)}</div></div>',unsafe_allow_html=True)
         c5.markdown(f'<div class="kpi-container"><div class="kpi-title">Realizado vs Orçado</div><div class="kpi-value">{(total_realizado/total_orcado*100) if total_orcado>0 else 0:.1f}%</div></div>',unsafe_allow_html=True)
-
         st.markdown("<br>", unsafe_allow_html=True)
-
-    def plotly_bar(x_vals, y_vals, title, color, fmt="qtd"):
-        if not x_vals or not y_vals:
-            return go.Figure()
-        texts = [f"{int(v):,}".replace(",",".") if fmt=="qtd" else brl_k(v) for v in y_vals]
-        y_max = max(y_vals) if y_vals else 1
-        fig = go.Figure(go.Bar(
-            x=x_vals, y=y_vals, marker_color=color,
-            text=texts, textposition="outside",
-            textfont=dict(family="Segoe UI", size=11, color="#0f172a")
-        ))
-        fig.update_layout(
-            title=dict(text=title, font=dict(family="Segoe UI", size=14, color="#0f172a")),
-            font=dict(family="Segoe UI"),
-            plot_bgcolor="white", paper_bgcolor="white",
-            margin=dict(t=50, b=30, l=10, r=10),
-            yaxis=dict(showgrid=True, gridcolor="#f1f5f9", zeroline=False,
-                       range=[0, y_max*1.25] if y_max > 0 else [0,1]),
-            xaxis=dict(tickfont=dict(size=11)),
-            height=320,
-        )
-        return fig
-
-        # Nível
-        vc = df_p["Nível"].value_counts()
-        vv = df_p.groupby("Nível")["Total Estimado 2026"].sum()
         g1, g2 = st.columns(2)
         with g1:
-            st.plotly_chart(plotly_bar(vc.index.tolist(), vc.values.tolist(), "Ideias por Nível", "#185FA5", "qtd"), use_container_width=True)
+            st.markdown("**Ideias por Nível**")
+            vc = df_p["Nível"].value_counts()
+            st.bar_chart(vc, color="#185FA5")
+            st.markdown("**Ideias por Frente**")
+            fi = df_ativas.groupby("Frente de Negócio").size()
+            st.bar_chart(fi, color="#16a34a")
         with g2:
-            st.plotly_chart(plotly_bar(vv.index.tolist(), vv.values.tolist(), "Valores por Nível", "#185FA5", "brl"), use_container_width=True)
+            st.markdown("**Valores por Nível**")
+            vv = df_p.groupby("Nível")["Total Estimado 2026"].sum()
+            st.bar_chart(vv, color="#185FA5")
+            st.markdown("**Valores por Frente**")
+            fv = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
+            st.bar_chart(fv, color="#16a34a")
 
-        # Frente
-        fi = df_ativas.groupby("Frente de Negócio").size()
-        fv = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
-        g3, g4 = st.columns(2)
-        with g3:
-            st.plotly_chart(plotly_bar(fi.index.tolist(), fi.values.tolist(), "Ideias por Frente", "#16a34a", "qtd"), use_container_width=True)
-        with g4:
-            st.plotly_chart(plotly_bar(fv.index.tolist(), fv.values.tolist(), "Valores por Frente", "#16a34a", "brl"), use_container_width=True)
+    with tab_matriz:
+        niveis_ativos = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado"]
+        st.markdown("#### Posição Atual — Frentes × Níveis")
+        linhas = []
+        for frente in frentes:
+            linha = {"Frente": frente}
+            total_fr = 0.0; total_qtd = 0
+            for nivel in niveis_ativos:
+                sub = df_p[(df_p["Frente de Negócio"]==frente) & (df_p["Nível"]==nivel)]
+                qtd = len(sub); val = sub["Total Estimado 2026"].sum()
+                nc = nivel.split(" - ")[0]
+                linha[f"{nc} Qtd"] = qtd
+                linha[f"{nc} R$"] = brl_k(val)
+                linha[f"_{nc}_val"] = val
+                total_fr += val; total_qtd += qtd
+            linha["Total Qtd"] = total_qtd
+            linha["Total R$"] = brl_k(total_fr)
+            linhas.append(linha)
+        total_row = {"Frente": "TOTAL"}
+        for nivel in niveis_ativos:
+            nc = nivel.split(" - ")[0]
+            sub = df_p[df_p["Nível"]==nivel]
+            total_row[f"{nc} Qtd"] = len(sub)
+            total_row[f"{nc} R$"] = brl_k(sub["Total Estimado 2026"].sum())
+            total_row[f"_{nc}_val"] = sub["Total Estimado 2026"].sum()
+        total_row["Total Qtd"] = len(df_p[df_p["Nível"].isin(niveis_ativos)])
+        total_row["Total R$"] = brl_k(df_p[df_p["Nível"].isin(niveis_ativos)]["Total Estimado 2026"].sum())
+        linhas.append(total_row)
+        cols_ex = ["Frente"] + [f"{n.split(' - ')[0]} Qtd" for n in niveis_ativos] +                   [f"{n.split(' - ')[0]} R$" for n in niveis_ativos] + ["Total Qtd","Total R$"]
+        df_matriz = pd.DataFrame(linhas)[cols_ex]
+        st.dataframe(df_matriz, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        col_snap1, col_snap2 = st.columns([2,1])
+        with col_snap2:
+            if u["perfil"] == "adm":
+                if st.button("📸 Registrar posição desta semana", type="primary", use_container_width=True):
+                    semana_id = db.salvar_snapshot(df_p, u)
+                    st.success(f"Snapshot registrado: {semana_id}"); st.rerun()
+
+        snaps = db.ler_snapshots()
+        if len(snaps) >= 2:
+            st.markdown("#### Comparativo com semana anterior")
+            snap_atual = snaps[0]; snap_ant = snaps[1]
+            st.caption(f"Comparando **{snap_atual['data']}** (atual) vs **{snap_ant['data']}** (anterior)")
+
+            def indexar(snap):
+                idx = {}
+                for r in snap.get("dados",[]):
+                    n = r["nivel"]; f = r["frente"]
+                    if n not in idx: idx[n] = {}
+                    idx[n][f] = {"qtd": r["qtd"], "valor": r["valor"]}
+                return idx
+
+            atual_idx = indexar(snap_atual)
+            ant_idx   = indexar(snap_ant)
+            textos = []
+            for nivel in niveis_ativos:
+                frentes_com_mudanca = []
+                delta_total_val = 0.0; delta_total_qtd = 0
+                for frente in frentes:
+                    v_at = atual_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
+                    v_an = ant_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
+                    q_at = atual_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
+                    q_an = ant_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
+                    dv = v_at - v_an; dq = q_at - q_an
+                    if abs(dv) > 0.01 or dq != 0:
+                        sv = "+" if dv >= 0 else ""
+                        sq = "+" if dq >= 0 else ""
+                        det = f"{frente}: {sv}{brl_k(dv)}"
+                        if dq != 0: det += f" ({sq}{dq} ideia{'s' if abs(dq)!=1 else ''})"
+                        frentes_com_mudanca.append(det)
+                        delta_total_val += dv; delta_total_qtd += dq
+                if frentes_com_mudanca:
+                    sv = "+" if delta_total_val >= 0 else ""
+                    sq = "+" if delta_total_qtd >= 0 else ""
+                    resumo = f"**{nivel}:** potencial {sv}{brl_k(delta_total_val)}"
+                    if delta_total_qtd != 0:
+                        resumo += f", {sq}{delta_total_qtd} ideia{'s' if abs(delta_total_qtd)!=1 else ''}"
+                    resumo += f". Por frente — " + "; ".join(frentes_com_mudanca) + "."
+                    textos.append(resumo)
+            if textos:
+                for t in textos: st.markdown(f"- {t}")
+            else:
+                st.info("Nenhuma variação entre os dois últimos snapshots.")
+        elif len(snaps) == 1:
+            st.info(f"Snapshot de {snaps[0]['data']} registrado. Registre mais um na próxima semana para ver o comparativo.")
+        else:
+            st.info("Nenhum snapshot registrado ainda. Clique em '📸 Registrar posição desta semana' para começar.")
 
     with tab_evo:
         df_ev = df_ativas.copy()
         df_ev["Semana"] = df_ev["Data Cadastro (N1)"].apply(
             lambda x: f"Sem.{x.split('/')[1]}/{x.split('/')[2]}" if pd.notna(x) and x and "/" in str(x) else "?")
         evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
-        semanas = sorted(evo.index.tolist())
-        niveis_cores = {
-            "N1 - Ideia":"#93c5fd","N2 - Planejamento":"#6ee7b7",
-            "N3 - Execução":"#fcd34d","N4 - Implementado":"#16a34a","N0 - Cancelada":"#fca5a5"
-        }
-        fig_evo = go.Figure()
-        totais_por_semana = evo.sum(axis=1)
-        for nivel in evo.columns:
-            cor = niveis_cores.get(nivel, "#94a3b8")
-            fig_evo.add_trace(go.Bar(
-                name=nivel, x=semanas, y=evo[nivel].tolist(),
-                marker_color=cor,
-                text=[brl_k(v) if v > 0 else "" for v in evo[nivel].tolist()],
-                textposition="inside",
-                textfont=dict(family="Segoe UI", size=10, color="#0f172a"),
-            ))
-        # etiqueta de total no topo de cada coluna empilhada
-        fig_evo.add_trace(go.Scatter(
-            x=semanas, y=totais_por_semana.tolist(),
-            mode="text",
-            text=[brl_k(v) for v in totais_por_semana],
-            textposition="top center",
-            textfont=dict(family="Segoe UI", size=11, color="#0f172a", ),
-            showlegend=False, name="Total"
-        ))
-        fig_evo.update_layout(
-            barmode="stack",
-            title=dict(text="Evolução por Semana de Cadastro", font=dict(family="Segoe UI", size=14, color="#0f172a")),
-            font=dict(family="Segoe UI"),
-            plot_bgcolor="white", paper_bgcolor="white",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(t=80, b=30, l=10, r=10),
-            yaxis=dict(showgrid=True, gridcolor="#f1f5f9"),
-            height=400,
-        )
-        st.plotly_chart(fig_evo, use_container_width=True)
+        st.markdown("**Evolução por Semana de Cadastro**")
+        st.bar_chart(evo)
 
-    with tab_ger:
-        if u["perfil"]=="adm":
-            with st.expander("⚙️ Ajustar Metas Orçadas"):
-                with st.form("form_orc"):
-                    cols_orc = st.columns(len(frentes))
-                    vals_orc = {f: cols_orc[i].number_input(f,value=float(orc_data.get(f,0.0)),step=10000.0) for i,f in enumerate(frentes)}
-                    if st.form_submit_button("Salvar",type="primary"):
-                        db.salvar_orcamento(vals_orc); st.success("Atualizado!"); time.sleep(1); st.rerun()
-
-        relatorio = []
-        for f in frentes:
-            df_f2 = df_p[df_p["Frente de Negócio"]==f]
-            n1 = df_f2[df_f2["Nível"]=="N1 - Ideia"]["Total Estimado 2026"].sum()
-            n2 = df_f2[df_f2["Nível"]=="N2 - Planejamento"]["Total Estimado 2026"].sum()
-            n3 = df_f2[df_f2["Nível"]=="N3 - Execução"]["Total Estimado 2026"].sum()
-            n4 = df_f2[df_f2["Nível"]=="N4 - Implementado"]["Total Estimado 2026"].sum()
-            total = n1+n2+n3+n4
-            orc = orc_data.get(f,0.0)
-            relatorio.append({
-                "Frente":f,"N1 - Ideia":brl_k(n1),"N2 - Planejamento":brl_k(n2),
-                "N3 - Execução":brl_k(n3),"N4 - Implementado":brl_k(n4),
-                "Total":brl_k(total),"Orçado":brl_k(orc),
-                "% Ating. (N4/Orç.)":f"{(n4/orc*100) if orc>0 else 0:.1f}%"
-            })
-        st.dataframe(pd.DataFrame(relatorio),use_container_width=True,hide_index=True)
-
-    with tab_excel:
-        for i in range(1,13):
-            if f"M{i}" not in df_p.columns: df_p[f"M{i}"] = 0.0
-            else: df_p[f"M{i}"] = pd.to_numeric(df_p[f"M{i}"],errors="coerce").fillna(0.0)
-        excel_p = gerar_excel_sco(df_p)
-        st.download_button("📥 Download Excel",data=excel_p,
-            file_name=f"Base_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.ms-excel",type="primary")
 
 # ── LOG ────────────────────────────────────────────────────────────────────────
 def pagina_log():
@@ -697,7 +695,9 @@ def pagina_log():
 def pagina_admin():
     u = st.session_state.usuario
     st.markdown('<h2 style="color:#0f172a;">⚙️ Painel de Acessos</h2>',unsafe_allow_html=True)
-    tab_novo,tab_edit,tab_import = st.tabs(["➕ Novo Usuário","✏️ Editar Usuários","📤 Importar Planilha"])
+    tab_novo,tab_edit,tab_import,tab_hist = st.tabs([
+        "➕ Novo Usuário","✏️ Editar Usuários","📤 Importar Oportunidades","📅 Importar Histórico"
+    ])
 
     with tab_novo:
         with st.container(border=True):
@@ -759,6 +759,31 @@ def pagina_admin():
                 st.success(f"{count} oportunidade(s) importada(s) com sucesso!")
             except Exception as e:
                 st.error(f"Erro: {e}")
+
+    with tab_hist:
+        st.markdown("#### Importar Histórico de Snapshots Semanais")
+        st.markdown("Use esta aba para carregar posições de semanas anteriores ao sistema. Será feito 1 ou 2 vezes.")
+        st.markdown("**Passo 1:** Baixe o modelo, preencha com os dados históricos e reimporte.")
+        hist_padrao = db.gerar_planilha_historico_padrao()
+        st.download_button("📥 Baixar Modelo de Histórico", data=hist_padrao,
+            file_name="Modelo_Historico_Snapshots.xlsx", mime="application/vnd.ms-excel")
+        st.markdown("**Passo 2:** Importe o arquivo preenchido.")
+        arq_hist = st.file_uploader("Selecione o histórico (.xlsx)", type=["xlsx"], key="up_hist")
+        if arq_hist and st.button("🚀 Importar Histórico", type="primary", key="btn_hist"):
+            try:
+                df_h = pd.read_excel(arq_hist)
+                count_h = db.importar_historico_snapshots(df_h, u)
+                st.success(f"{count_h} semana(s) importada(s) com sucesso!")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+
+        # lista snapshots existentes
+        snaps = db.ler_snapshots()
+        if snaps:
+            st.markdown("---")
+            st.markdown(f"**{len(snaps)} snapshot(s) registrado(s):**")
+            df_snaps = pd.DataFrame([{"Semana": s["semana"], "Data": s["data"], "Registrado por": s.get("registrado_por","")} for s in snaps])
+            st.dataframe(df_snaps, use_container_width=True, hide_index=True)
 
 def main():
     if not st.session_state.usuario: tela_login()
