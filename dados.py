@@ -650,6 +650,11 @@ def gerar_planilha_padrao() -> bytes:
 
 def importar_base_excel(df, u):
     import uuid
+    df_pc = ler_plano_contas()
+    # lookups para detecção automática de frente
+    lookup_cont = dict(zip(df_pc["ContaCont"].str.strip().str.lower(), df_pc["Frente"]))
+    lookup_orc  = dict(zip(df_pc["ContaOrc"].str.strip().str.lower(),  df_pc["Frente"]))
+
     df = df.dropna(how="all").fillna("")
     count = 0
     for _, row in df.iterrows():
@@ -658,14 +663,22 @@ def importar_base_excel(df, u):
         id_unico = str(uuid.uuid4()).split("-")[0][:6].upper()
         try: total = float(str(row.get("Total Estimado 2026","0")))
         except: total = 0.0
+
+        conta_cont = str(row.get("Desc. Conta Contábil","")).strip()
+        conta_orc  = str(row.get("Conta Orçamento","")).strip()
+        # detecta frente automaticamente pelo plano de contas
+        frente = (lookup_cont.get(conta_cont.lower(),"") or
+                  lookup_orc.get(conta_orc.lower(),"") or "")
+
         nova = {
             "ID": id_unico, "Título": titulo,
             "Descrição": str(row.get("Descrição", titulo)).strip(),
             "Grupo Contábil": str(row.get("Grupo Contábil (ADM/COM/IND)","")).strip(),
             "Dono da Oportunidade": str(row.get("Dono da Oportunidade","")).strip(),
             "CC Dono": str(row.get("Centro de Custo do Dono da Oportunidade","")).strip(),
-            "Conta Orçamento": str(row.get("Conta Orçamento","")).strip(),
-            "Conta Contábil": str(row.get("Desc. Conta Contábil","")).strip(),
+            "Conta Orçamento": conta_orc,
+            "Conta Contábil": conta_cont,
+            "Frente de Negócio": frente,
             "Filial": str(row.get("Filial","")).strip(),
             "Nível": str(row.get("Status","N1 - Ideia")).strip(),
             "Craque": u.get("nome","Importação"),
@@ -681,7 +694,6 @@ def importar_base_excel(df, u):
         for i in range(1,13):
             try: nova[f"M{i}"] = float(str(row.get(f"M{i}","0")))
             except: nova[f"M{i}"] = 0.0
-        # mapeia meses absolutos
         if nova["Data Prevista N4"]:
             vals = [nova[f"M{i}"] for i in range(1,13)]
             meses_abs = mapear_valores_para_meses_absolutos(nova["Data Prevista N4"], vals)
