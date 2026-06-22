@@ -5,7 +5,6 @@ import base64, time, os, io
 import dados as db
 import plotly.graph_objects as go
 
-_favicon = obter_bg_base64("barra_frigelar.png") if os.path.exists("barra_frigelar.png") else None
 st.set_page_config(
     page_title="Programa Essência",
     page_icon="barra_frigelar.png" if os.path.exists("barra_frigelar.png") else "💡",
