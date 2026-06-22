@@ -184,7 +184,7 @@ def ler_plano_contas() -> pd.DataFrame:
         {"Código":"3.1.5.06.013","ContaCont":"Energia Eletrica","ContaOrc":"Energia","Frente":"Consumo"},
         {"Código":"3.1.8.06.025","ContaCont":"Energia Eletrica","ContaOrc":"Energia","Frente":"Consumo"},
         {"Código":"3.1.9.05.026","ContaCont":"Energia Eletrica","ContaOrc":"Energia","Frente":"Consumo"},
-        {"Código":"3.1.9.05.111","ContaCont":"Consultorias Expansão","ContaOrc":"Expansão","Frente":"Facilities"},
+        {"Código":"3.1.9.05.111","ContaCont":"Consultorias Expansão","ContaOrc":"Expansão","Frente":"Consumo"},
         {"Código":"3.1.8.06.023","ContaCont":"Despesas C/Provisão Para Credito De Liquid Duvidosa","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
         {"Código":"3.1.8.06.067","ContaCont":"Desp. C/ Prov. Dev. Duvidosos - Societario","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
         {"Código":"3.1.8.06.071","ContaCont":"Perdas Com Operações De Vendas/Clientes","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
@@ -453,6 +453,13 @@ def ler_filiais() -> list:
 def ler_frentes() -> list:
     return ["Consumo","Digital","Financeiro","Indústria","Logística","Produtividade","Tecnologia"]
 
+def normalizar_frente(frente: str) -> str:
+    """Remapeia Facilities → Consumo e normaliza."""
+    if not frente: return ""
+    f = frente.strip()
+    if f.lower() == "facilities": return "Consumo"
+    return f
+
 # ── MESES ABSOLUTOS (jan/2026 a dez/2028) ─────────────────────────────────────
 def gerar_colunas_meses_absolutos():
     meses = []
@@ -528,6 +535,7 @@ def cadastrar_oportunidade(dados, usuario):
         "Dono da Oportunidade": dados.get("dono",""),
         "CC Dono": dados.get("cc_dono",""),
         "Craque": usuario.get("nome",""),
+        "Area Craque": dados.get("area_craque", usuario.get("area_craque","")),
         "Filial": dados.get("filial", usuario.get("filial","")),
         "Frente de Negócio": dados.get("frente_automatica",""),
         "Data Cadastro (N1)": hoje,
@@ -587,12 +595,13 @@ def editar_campos_oportunidade(id_, campos, usuario):
     registrar_log(usuario, "EDIÇÃO DE CAMPOS", f"Campos: {', '.join(list(campos.keys())[:5])}", id_)
 
 # ── USUÁRIOS ───────────────────────────────────────────────────────────────────
-def cadastrar_usuario_manual(login, nome, perfil, email, filial, area, frente, senha):
+def cadastrar_usuario_manual(login, nome, perfil, email, filial, area, frente, senha, area_craque=""):
     db_fire.collection("usuarios").document(login.lower()).set({
         "login": login, "nome": nome, "Nome Completo": nome,
         "perfil": perfil, "Perfil": perfil, "email": email,
         "filial": filial, "Filial": filial, "area": area,
         "frente": frente, "Frente de Negócio": frente,
+        "area_craque": area_craque,
         "senha": senha, "Ativo": "Sim"
     })
 
@@ -606,9 +615,10 @@ def ler_usuarios():
     if not lista: return pd.DataFrame()
     return pd.DataFrame(lista)
 
-def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_senha, usuario_logado=None):
+def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_senha, usuario_logado=None, area_craque=""):
     upd = {"nome":nome,"Nome Completo":nome,"email":email,"perfil":perfil,"Perfil":perfil,
-           "frente":frente,"Frente de Negócio":frente,"filial":filial,"Filial":filial}
+           "frente":frente,"Frente de Negócio":frente,"filial":filial,"Filial":filial,
+           "area_craque": area_craque}
     if nova_senha.strip(): upd["senha"] = nova_senha.strip()
     db_fire.collection("usuarios").document(login).update(upd)
     if usuario_logado: registrar_log(usuario_logado,"EDIÇÃO USUÁRIO",f"Editado: {login}")
@@ -649,11 +659,15 @@ def gerar_planilha_padrao() -> bytes:
     return buf.getvalue()
 
 def importar_base_excel(df, u):
-    import uuid
+    import uuid, re
     df_pc = ler_plano_contas()
-    # lookups para detecção automática de frente
-    lookup_cont = dict(zip(df_pc["ContaCont"].str.strip().str.lower(), df_pc["Frente"]))
-    lookup_orc  = dict(zip(df_pc["ContaOrc"].str.strip().str.lower(),  df_pc["Frente"]))
+
+    def norm(s):
+        """Normaliza string para lookup: minúsculo, sem underscores, sem espaços duplos."""
+        return re.sub(r'[\s_]+', ' ', str(s).strip().lower())
+
+    lookup_cont = {norm(k): v for k,v in zip(df_pc["ContaCont"], df_pc["Frente"])}
+    lookup_orc  = {norm(k): v for k,v in zip(df_pc["ContaOrc"],  df_pc["Frente"])}
 
     df = df.dropna(how="all").fillna("")
     count = 0
@@ -661,18 +675,29 @@ def importar_base_excel(df, u):
         titulo = str(row.get("Título","")).strip()
         if not titulo or titulo.lower() == "nan": continue
         id_unico = str(uuid.uuid4()).split("-")[0][:6].upper()
-        try: total = float(str(row.get("Total Estimado 2026","0")))
+
+        # valor tolerante — zero se vazio ou inválido
+        try: total = float(str(row.get("Total Estimado 2026","0")).replace(",",".") or "0")
         except: total = 0.0
 
         conta_cont = str(row.get("Desc. Conta Contábil","")).strip()
         conta_orc  = str(row.get("Conta Orçamento","")).strip()
-        # detecta frente automaticamente pelo plano de contas
-        frente = (lookup_cont.get(conta_cont.lower(),"") or
-                  lookup_orc.get(conta_orc.lower(),"") or "")
+
+        # frente: lookup normalizado, depois normaliza Facilities→Consumo
+        frente_raw = (lookup_cont.get(norm(conta_cont),"") or
+                      lookup_orc.get(norm(conta_orc),"") or
+                      str(row.get("Frente de Negócio","")).strip())
+        frente = normalizar_frente(frente_raw)
+
+        # descrição independente do título
+        descricao = str(row.get("Descrição","")).strip()
+        if not descricao or descricao.lower() == "nan":
+            descricao = titulo  # fallback só se realmente vazio
 
         nova = {
-            "ID": id_unico, "Título": titulo,
-            "Descrição": str(row.get("Descrição", titulo)).strip(),
+            "ID": id_unico,
+            "Título": titulo,
+            "Descrição": descricao,
             "Grupo Contábil": str(row.get("Grupo Contábil (ADM/COM/IND)","")).strip(),
             "Dono da Oportunidade": str(row.get("Dono da Oportunidade","")).strip(),
             "CC Dono": str(row.get("Centro de Custo do Dono da Oportunidade","")).strip(),
@@ -680,8 +705,9 @@ def importar_base_excel(df, u):
             "Conta Contábil": conta_cont,
             "Frente de Negócio": frente,
             "Filial": str(row.get("Filial","")).strip(),
-            "Nível": str(row.get("Status","N1 - Ideia")).strip(),
+            "Nível": str(row.get("Status","N1 - Ideia")).strip() or "N1 - Ideia",
             "Craque": u.get("nome","Importação"),
+            "Area Craque": str(row.get("Area Craque","")).strip(),
             "Total Estimado 2026": total,
             "Data Prevista N3": str(row.get("Data Prevista N3","")).strip(),
             "Data Prevista N4": str(row.get("Data Prevista N4","")).strip(),
@@ -692,7 +718,7 @@ def importar_base_excel(df, u):
             "Comentário da Semana": "",
         }
         for i in range(1,13):
-            try: nova[f"M{i}"] = float(str(row.get(f"M{i}","0")))
+            try: nova[f"M{i}"] = float(str(row.get(f"M{i}","0")).replace(",",".") or "0")
             except: nova[f"M{i}"] = 0.0
         if nova["Data Prevista N4"]:
             vals = [nova[f"M{i}"] for i in range(1,13)]
