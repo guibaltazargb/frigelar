@@ -374,11 +374,11 @@ def ler_plano_contas() -> pd.DataFrame:
         {"Código":"3.1.9.05.058","ContaCont":"Servicos De Terceiros Adm","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
         {"Código":"3.1.9.05.088","ContaCont":"Material De Informática","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
         {"Código":"3.1.9.05.107","ContaCont":"Manutenção, Suporte Em Ti","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.5.06.043","ContaCont":"Servicos De Vigilancia","ContaOrc":"Serviços Vigilância","Frente":"Facilities"},
-        {"Código":"3.1.8.06.037","ContaCont":"Manutencao Seguranca","ContaOrc":"Serviços Vigilância","Frente":"Facilities"},
-        {"Código":"3.1.8.06.051","ContaCont":"Servicos De Vigilancia","ContaOrc":"Serviços Vigilância","Frente":"Facilities"},
-        {"Código":"3.1.9.05.038","ContaCont":"Manutencao Seguranca","ContaOrc":"Serviços Vigilância","Frente":"Facilities"},
-        {"Código":"3.1.9.05.060","ContaCont":"Serviço De Vigilância","ContaOrc":"Serviços Vigilância","Frente":"Facilities"},
+        {"Código":"3.1.5.06.043","ContaCont":"Servicos De Vigilancia","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
+        {"Código":"3.1.8.06.037","ContaCont":"Manutencao Seguranca","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
+        {"Código":"3.1.8.06.051","ContaCont":"Servicos De Vigilancia","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
+        {"Código":"3.1.9.05.038","ContaCont":"Manutencao Seguranca","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
+        {"Código":"3.1.9.05.060","ContaCont":"Serviço De Vigilância","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
         {"Código":"3.1.8.06.005","ContaCont":"Taxa Administradora Cartão","ContaOrc":"Tarifa Cartão","Frente":"Financeiro"},
         {"Código":"3.1.8.06.006","ContaCont":"Aluguel Maquina Cartao Credito","ContaOrc":"Tarifa Cartão","Frente":"Financeiro"},
         {"Código":"3.1.5.06.046","ContaCont":"Comunicação/Telefonia","ContaOrc":"Telefonia Adm","Frente":"Tecnologia"},
@@ -451,7 +451,7 @@ def ler_filiais() -> list:
     ]
 
 def ler_frentes() -> list:
-    return ["Consumo","Digital","Facilities","Financeiro","Indústria","Logística","Produtividade","Tecnologia"]
+    return ["Consumo","Digital","Financeiro","Indústria","Logística","Produtividade","Tecnologia"]
 
 # ── MESES ABSOLUTOS (jan/2026 a dez/2028) ─────────────────────────────────────
 def gerar_colunas_meses_absolutos():
