@@ -703,4 +703,80 @@ def importar_base_excel(df, u):
     registrar_log(u,"IMPORTAÇÃO EXCEL",f"{count} oportunidades importadas")
     return count
 
+# ── SNAPSHOTS SEMANAIS ────────────────────────────────────────────────────────
+def salvar_snapshot(df_oportunidades, usuario):
+    """Salva posição atual (frente x nível) como snapshot semanal."""
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    semana = datetime.now().strftime("%Y-W%W")
+    frentes = ler_frentes()
+    niveis = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
+    df = df_oportunidades.copy()
+    df["Total Estimado 2026"] = pd.to_numeric(df["Total Estimado 2026"], errors="coerce").fillna(0.0)
+    df["Nível"] = df["Nível"].astype(str).str.strip()
+    df["Frente de Negócio"] = df["Frente de Negócio"].astype(str).str.strip()
+    registros = []
+    for nivel in niveis:
+        for frente in frentes:
+            subset = df[(df["Nível"]==nivel) & (df["Frente de Negócio"]==frente)]
+            registros.append({
+                "nivel": nivel, "frente": frente,
+                "qtd": len(subset),
+                "valor": float(subset["Total Estimado 2026"].sum()),
+            })
+    db_fire.collection("snapshots").document(semana).set({
+        "semana": semana, "data": hoje,
+        "registrado_por": usuario.get("nome","?"),
+        "dados": registros
+    })
+    registrar_log(usuario, "SNAPSHOT", f"Snapshot semanal registrado: {semana}")
+    return semana
+
+def ler_snapshots() -> list:
+    """Retorna lista de snapshots ordenados do mais recente para o mais antigo."""
+    docs = db_fire.collection("snapshots").stream()
+    snaps = []
+    for doc in docs:
+        d = doc.to_dict()
+        d["id"] = doc.id
+        snaps.append(d)
+    return sorted(snaps, key=lambda x: x.get("semana",""), reverse=True)
+
+def importar_historico_snapshots(df_hist, usuario):
+    """Importa snapshots históricos de uma planilha. Colunas: semana, data, nivel, frente, qtd, valor"""
+    df_hist = df_hist.dropna(how="all").fillna("")
+    semanas = {}
+    for _, row in df_hist.iterrows():
+        semana = str(row.get("semana","")).strip()
+        if not semana or semana.lower()=="nan": continue
+        if semana not in semanas:
+            semanas[semana] = {"semana": semana, "data": str(row.get("data","")).strip(), "registrado_por": "Importação Histórica", "dados": []}
+        semanas[semana]["dados"].append({
+            "nivel":  str(row.get("nivel","")).strip(),
+            "frente": str(row.get("frente","")).strip(),
+            "qtd":    int(float(str(row.get("qtd",0)))),
+            "valor":  float(str(row.get("valor",0))),
+        })
+    for semana, doc in semanas.items():
+        db_fire.collection("snapshots").document(semana).set(doc)
+    registrar_log(usuario, "IMPORTAÇÃO HISTÓRICO", f"{len(semanas)} semanas importadas")
+    return len(semanas)
+
+def gerar_planilha_historico_padrao() -> bytes:
+    """Gera planilha padrão para importação de histórico de snapshots."""
+    colunas = ["semana","data","nivel","frente","qtd","valor"]
+    exemplo = [
+        {"semana":"2025-W10","data":"07/03/2025","nivel":"N1 - Ideia","frente":"Consumo","qtd":3,"valor":150000},
+        {"semana":"2025-W10","data":"07/03/2025","nivel":"N2 - Planejamento","frente":"Financeiro","qtd":2,"valor":200000},
+    ]
+    df_ex = pd.DataFrame(exemplo, columns=colunas)
+    buf = __import__("io").BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+        df_ex.to_excel(w, index=False, sheet_name="Histórico")
+        ws = w.sheets["Histórico"]
+        fmt = w.book.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff"})
+        for i, col in enumerate(colunas):
+            ws.write(0, i, col, fmt)
+            ws.set_column(i, i, max(len(col)+4, 18))
+    return buf.getvalue()
+
 # NÃO MEXER NO CÓDIGO QUE ESTÁ DANDO CERTO
