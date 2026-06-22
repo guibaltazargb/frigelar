@@ -570,7 +570,8 @@ def pagina_painel_integrado():
                 xaxis=dict(tickfont=dict(size=11)),
                 height=320,
             )
-            fig.update_yaxis(range=[0, max(y_vals)*1.25] if max(y_vals)>0 else [0,1])
+            if y_vals:
+                fig.update_yaxis(range=[0, max(y_vals)*1.25] if max(y_vals)>0 else [0,1])
             return fig
 
         # Nível
