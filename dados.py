@@ -460,14 +460,19 @@ def normalizar_frente(frente: str) -> str:
     if f.lower() == "facilities": return "Consumo"
     return f
 
-# ── MESES ABSOLUTOS (jan/2026 a dez/2028) ─────────────────────────────────────
+# ── MESES ABSOLUTOS (jan_2026 a dez_2028) ─────────────────────────────────────
 def gerar_colunas_meses_absolutos():
+    """Retorna lista de chaves de meses absolutos com _ (compatível com Firestore)."""
     meses = []
     nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
     for ano in [2026, 2027, 2028]:
         for m in nomes:
-            meses.append(f"{m}/{ano}")
+            meses.append(f"{m}_{ano}")
     return meses
+
+def chave_para_label(chave: str) -> str:
+    """Converte jan_2026 → jan/2026 para exibição."""
+    return chave.replace("_", "/", 1) if "_" in chave else chave
 
 def mapear_valores_para_meses_absolutos(data_n4_str, valores_mensais):
     """Recebe data N4 (dd/mm/aaaa) e lista de 12 valores, retorna dict {mes_abs: valor}"""
@@ -483,7 +488,7 @@ def mapear_valores_para_meses_absolutos(data_n4_str, valores_mensais):
             ano_abs = ano_inicio + (mes_abs - 1) // 12
             mes_abs = ((mes_abs - 1) % 12) + 1
             nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
-            chave = f"{nomes[mes_abs-1]}/{ano_abs}"
+            chave = f"{nomes[mes_abs-1]}_{ano_abs}"
             if chave in resultado:
                 resultado[chave] = float(val)
     except:
