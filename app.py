@@ -128,7 +128,7 @@ def montar_tabela_sco(df_in):
             df[c] = df[c].apply(fmt_data_curta)
 
     # Título SEMPRE primeiro, depois o restante
-    colunas_base = ["Título","Descrição","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
+    colunas_base = ["Título","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
         "Conta Orçamento","Conta Contábil",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
@@ -154,9 +154,9 @@ def montar_tabela_sco(df_in):
     return df_d
 
 def gerar_excel_sco(df_in) -> bytes:
-    """Gera Excel com todas as colunas do documento + meses absolutos"""
+    """Gera Excel com todas as colunas do documento + meses absolutos."""
     df = df_in.copy()
-    meses_abs = db.gerar_colunas_meses_absolutos()
+    meses_abs = db.gerar_colunas_meses_absolutos()  # jan_2026 etc
     for m in meses_abs:
         if m not in df.columns: df[m] = 0.0
         else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
@@ -165,11 +165,11 @@ def gerar_excel_sco(df_in) -> bytes:
         if col not in df.columns: df[col] = 0.0
         else: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-    # colunas prioritárias na frente, depois extras
     colunas_priority = [
         "Título","Descrição","Nível","Grupo Contábil","Frente de Negócio",
-        "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono","Filial","Craque",
-        "Comentário da Semana","Justificativa Cancelamento",
+        "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono",
+        "Filial","Craque","Area Craque","Comentário da Semana",
+        "Justificativa Cancelamento",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
         "Total Estimado 2026",
@@ -192,8 +192,10 @@ def gerar_excel_sco(df_in) -> bytes:
         fmt_laranja = wb.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff","border":1,"text_wrap":True})
         for i, col in enumerate(todas):
             fmt = fmt_laranja if col in cols_laranja else fmt_azul
-            ws.write(0, i, col, fmt)
-            ws.set_column(i, i, max(len(col)+2, 14))
+            # exibe jan/2026 no cabeçalho em vez de jan_2026
+            label = db.chave_para_label(col) if col in meses_abs else col
+            ws.write(0, i, label, fmt)
+            ws.set_column(i, i, max(len(label)+2, 14))
     return buf.getvalue()
 
 # ── LOGIN ─────────────────────────────────────────────────────────────────────
@@ -450,35 +452,48 @@ def pagina_sco():
 
             with tab_n:
                 st.markdown(f"**Status atual:** `{nivel_atual}`")
-                if "N2" in nivel_atual:
+
+                if "N1" in nivel_atual:
+                    st.info("ℹ️ Em N1 — aprovação para N2 é feita pelo Comitê de Despesas.")
+                    st.markdown("---")
+                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n1_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+
+                elif "N2" in nivel_atual:
                     dpn3 = str(row.get("Data Prevista N3","")).strip()
                     dpn4 = str(row.get("Data Prevista N4","")).strip()
                     vals_ok = any(float(row.get(f"M{i}",0) or 0) > 0 for i in range(1,13))
                     if not dpn3 or not dpn4 or not vals_ok:
-                        st.warning("⚠️ Para avançar para N3 é necessário preencher: Data Prevista N3, Data Prevista N4 e ao menos um valor mensal (M1–M12) na aba ✏️ Editar Campos.")
+                        st.warning("⚠️ Para avançar para N3 preencha: Data Prevista N3, Data Prevista N4 e ao menos um valor mensal (M1–M12) na aba ✏️ Editar Campos.")
                     else:
-                        c1,c2 = st.columns(2)
-                        with c1:
-                            if st.button("▶ Iniciar Execução (N2→N3)",key=f"n3_{id_sel}",use_container_width=True):
-                                db.movimentar_nivel(id_sel,"N3 - Execução",u); st.success("Movido para N3!"); st.rerun()
-                        with c2:
-                            if st.button("✖ Cancelar (→N0)",key=f"n0n2_{id_sel}",use_container_width=True):
-                                db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+                        if st.button("▶ Iniciar Execução (N2→N3)", key=f"n3_{id_sel}", use_container_width=True, type="primary"):
+                            db.movimentar_nivel(id_sel,"N3 - Execução",u); st.success("Movido para N3!"); st.rerun()
+                    st.markdown("---")
+                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n2_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
 
                 elif "N3" in nivel_atual:
                     sub = row.get("Submetido Controladoria",False)
-                    c1,c2 = st.columns(2)
-                    with c1:
-                        if not sub:
-                            if st.button("📋 Submeter para Controladoria (→N4)",key=f"sub_{id_sel}",type="primary",use_container_width=True):
-                                db.submeter_para_controladoria(id_sel,u); st.success("Enviado!"); st.rerun()
-                        else: st.warning("⏳ Aguardando validação da Controladoria.")
-                    with c2:
-                        if st.button("✖ Cancelar (→N0)",key=f"n0n3_{id_sel}",use_container_width=True):
-                            db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.rerun()
-                elif "N1" in nivel_atual: st.info("ℹ️ Em N1 — aprovação para N2 é feita pelo Comitê.")
-                elif "N4" in nivel_atual: st.success("✅ Implementada (N4).")
-                elif "N0" in nivel_atual: st.error("Cancelada (N0).")
+                    if not sub:
+                        if st.button("📋 Submeter para Controladoria (→N4)", key=f"sub_{id_sel}", type="primary", use_container_width=True):
+                            db.submeter_para_controladoria(id_sel,u); st.success("Enviado!"); st.rerun()
+                    else:
+                        st.warning("⏳ Aguardando validação da Controladoria.")
+                    st.markdown("---")
+                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n3_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+
+                elif "N4" in nivel_atual:
+                    st.success("✅ Implementada (N4).")
+                    st.markdown("---")
+                    if st.button("↩ Reabrir (N4→N3)", key=f"reabrir_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N3 - Execução",u); st.success("Reaberta para N3."); st.rerun()
+
+                elif "N0" in nivel_atual:
+                    st.error("Ideia cancelada (N0).")
+                    st.markdown("---")
+                    if st.button("↩ Reativar (N0→N1)", key=f"reativar_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N1 - Ideia",u); st.success("Reativada para N1."); st.rerun()
 
 # ── COMITÊ (N1→N2) ────────────────────────────────────────────────────────────
 def pagina_comite():
