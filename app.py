@@ -110,15 +110,29 @@ def fmt_data_curta(val):
 
 def montar_tabela_sco(df_in):
     df = df_in.copy()
-    for i in range(1,13):
-        col = f"M{i}"
-        if col not in df.columns: df[col] = 0.0
-        else: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+    meses_abs = db.gerar_colunas_meses_absolutos()  # jan_2026 ... dez_2028
+
+    # garante meses absolutos numéricos
+    for m in meses_abs:
+        if m not in df.columns: df[m] = 0.0
+        else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
+
     df["Total Estimado 2026"] = pd.to_numeric(df.get("Total Estimado 2026",0), errors="coerce").fillna(0.0)
-    df["1°TRI"] = df["M1"]+df["M2"]+df["M3"]
-    df["2°TRI"] = df["M4"]+df["M5"]+df["M6"]
-    df["3°TRI"] = df["M7"]+df["M8"]+df["M9"]
-    df["4°TRI"] = df["M10"]+df["M11"]+df["M12"]
+
+    # trimestres calculados APENAS pelos meses absolutos de 2026
+    nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+    tri1 = [f"{nomes[i]}_2026" for i in range(0,3)]   # jan-mar
+    tri2 = [f"{nomes[i]}_2026" for i in range(3,6)]   # abr-jun
+    tri3 = [f"{nomes[i]}_2026" for i in range(6,9)]   # jul-set
+    tri4 = [f"{nomes[i]}_2026" for i in range(9,12)]  # out-dez
+
+    def soma_meses(df, cols):
+        return sum(df[c] if c in df.columns else 0 for c in cols)
+
+    df["1°TRI 26"] = soma_meses(df, tri1)
+    df["2°TRI 26"] = soma_meses(df, tri2)
+    df["3°TRI 26"] = soma_meses(df, tri3)
+    df["4°TRI 26"] = soma_meses(df, tri4)
 
     # formata datas para mm/aaaa
     cols_data = ["Data Realizada N1","Data Prevista N2","Data Realizada N2",
@@ -132,10 +146,9 @@ def montar_tabela_sco(df_in):
         "Conta Orçamento","Conta Contábil",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
-        "1°TRI","2°TRI","3°TRI","4°TRI","Total Estimado 2026",
+        "1°TRI 26","2°TRI 26","3°TRI 26","4°TRI 26","Total Estimado 2026",
         "Dono da Oportunidade","CC Dono","Filial","Craque","Area Craque"]
     cols = [c for c in colunas_base if c in df.columns]
-    # garante Título mesmo se não estiver em colunas_base por algum motivo
     if "Título" not in cols and "Título" in df.columns:
         cols = ["Título"] + cols
 
@@ -148,15 +161,18 @@ def montar_tabela_sco(df_in):
         "Data Prevista N4":"N4 (Prev)","Data Realizada N4":"N4 (Real)",
         "Area Craque":"Área Craque",
     })
-    for col in ["1°TRI","2°TRI","3°TRI","4°TRI","Total 2026"]:
+    for col in ["1°TRI 26","2°TRI 26","3°TRI 26","4°TRI 26","Total 2026"]:
         if col in df_d.columns:
             df_d[col] = df_d[col].apply(lambda v: brl_k(v) if v != "" else "R$ 0")
     return df_d
 
 def gerar_excel_sco(df_in) -> bytes:
     """Gera Excel com todas as colunas do documento + meses absolutos."""
+    import re
     df = df_in.copy()
-    meses_abs = db.gerar_colunas_meses_absolutos()  # jan_2026 etc
+    meses_abs = db.gerar_colunas_meses_absolutos()  # jan_2026 etc (com underscore)
+
+    # garante meses absolutos numéricos
     for m in meses_abs:
         if m not in df.columns: df[m] = 0.0
         else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
@@ -165,17 +181,27 @@ def gerar_excel_sco(df_in) -> bytes:
         if col not in df.columns: df[col] = 0.0
         else: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
+    # padrão de mês absoluto legado (com barra): jan/2026, fev/2027 etc
+    padrao_mes_legado = re.compile(r'^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)/\d{4}$')
+
     colunas_priority = [
         "Título","Descrição","Nível","Grupo Contábil","Frente de Negócio",
         "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono",
         "Filial","Craque","Area Craque","Comentário da Semana",
-        "Justificativa Cancelamento",
+        "Justificativa Cancelamento","ID","Submetido Controladoria",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
         "Total Estimado 2026",
         "M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12",
     ] + meses_abs
-    extras = [c for c in df.columns if c not in colunas_priority and not c.startswith("_")]
+
+    # extras: qualquer coluna que não seja priority, não seja interna (_) e não seja mês legado
+    extras = [
+        c for c in df.columns
+        if c not in colunas_priority
+        and not c.startswith("_")
+        and not padrao_mes_legado.match(str(c))
+    ]
     todas = [c for c in colunas_priority if c in df.columns] + [c for c in extras if c in df.columns]
 
     cols_laranja = {
@@ -192,8 +218,7 @@ def gerar_excel_sco(df_in) -> bytes:
         fmt_laranja = wb.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff","border":1,"text_wrap":True})
         for i, col in enumerate(todas):
             fmt = fmt_laranja if col in cols_laranja else fmt_azul
-            # exibe jan/2026 no cabeçalho em vez de jan_2026
-            label = db.chave_para_label(col) if col in meses_abs else col
+            label = db.chave_para_label(col) if col in set(meses_abs) else col
             ws.write(0, i, label, fmt)
             ws.set_column(i, i, max(len(label)+2, 14))
     return buf.getvalue()
