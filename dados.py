@@ -668,11 +668,15 @@ def importar_base_excel(df, u):
     df_pc = ler_plano_contas()
 
     def norm(s):
-        """Normaliza string para lookup: minúsculo, sem underscores, sem espaços duplos."""
         return re.sub(r'[\s_]+', ' ', str(s).strip().lower())
 
     lookup_cont = {norm(k): v for k,v in zip(df_pc["ContaCont"], df_pc["Frente"])}
     lookup_orc  = {norm(k): v for k,v in zip(df_pc["ContaOrc"],  df_pc["Frente"])}
+
+    # mapeia labels de meses absolutos (jan/2026) para chaves (jan_2026)
+    meses_abs = gerar_colunas_meses_absolutos()
+    label_para_chave = {chave_para_label(m): m for m in meses_abs}
+    nomes_m = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
 
     df = df.dropna(how="all").fillna("")
     count = 0
@@ -681,33 +685,74 @@ def importar_base_excel(df, u):
         if not titulo or titulo.lower() == "nan": continue
         id_unico = str(uuid.uuid4()).split("-")[0][:6].upper()
 
-        # valor tolerante — zero se vazio ou inválido
         try: total = float(str(row.get("Total Estimado 2026","0")).replace(",",".") or "0")
         except: total = 0.0
 
         conta_cont = str(row.get("Desc. Conta Contábil","")).strip()
         conta_orc  = str(row.get("Conta Orçamento","")).strip()
-
-        # frente: lookup normalizado, depois normaliza Facilities→Consumo
         frente_raw = (lookup_cont.get(norm(conta_cont),"") or
                       lookup_orc.get(norm(conta_orc),"") or
                       str(row.get("Frente de Negócio","")).strip())
         frente = normalizar_frente(frente_raw)
 
-        # descrição independente do título
         descricao = str(row.get("Descrição","")).strip()
         if not descricao or descricao.lower() == "nan":
-            descricao = titulo  # fallback só se realmente vazio
+            descricao = titulo
+
+        # lê meses absolutos pela label jan/2026
+        vals_meses = {}
+        for label, chave in label_para_chave.items():
+            val_raw = str(row.get(label,"0")).replace(",",".")
+            try: vals_meses[chave] = float(val_raw or "0")
+            except: vals_meses[chave] = 0.0
+
+        # também aceita M1..M12 legados se não houver meses absolutos preenchidos
+        tem_abs = any(v != 0 for v in vals_meses.values())
+        vals_m = {}
+        if not tem_abs:
+            for i in range(1,13):
+                try: vals_m[f"M{i}"] = float(str(row.get(f"M{i}","0")).replace(",",".") or "0")
+                except: vals_m[f"M{i}"] = 0.0
+
+        # detecta Data N4 pelo primeiro mês absoluto com valor se vazia
+        data_n4 = str(row.get("Data Prevista N4","")).strip()
+        if not data_n4:
+            for chave in meses_abs:
+                if vals_meses.get(chave, 0) != 0:
+                    # converte jan_2026 → 01/01/2026
+                    partes = chave.split("_")
+                    mes_idx = nomes_m.index(partes[0]) + 1
+                    ano = partes[1]
+                    data_n4 = f"01/{mes_idx:02d}/{ano}"
+                    break
+
+        # se tem meses absolutos, reconstrói M1..M12 a partir deles e da data N4
+        if tem_abs and data_n4:
+            # detecta posição relativa
+            try:
+                partes = data_n4.split("/")
+                mes_ini = int(partes[1]); ano_ini = int(partes[2])
+                for i in range(1,13):
+                    mes_abs_i = mes_ini + (i-1)
+                    ano_abs_i = ano_ini + (mes_abs_i-1)//12
+                    mes_abs_i = ((mes_abs_i-1)%12)+1
+                    chave = f"{nomes_m[mes_abs_i-1]}_{ano_abs_i}"
+                    vals_m[f"M{i}"] = vals_meses.get(chave, 0.0)
+            except:
+                for i in range(1,13): vals_m[f"M{i}"] = 0.0
+        elif not vals_m:
+            for i in range(1,13): vals_m[f"M{i}"] = 0.0
+
+        # recalcula total se necessário
+        if total == 0:
+            total = sum(vals_m.values()) if vals_m else sum(vals_meses.values())
 
         nova = {
-            "ID": id_unico,
-            "Título": titulo,
-            "Descrição": descricao,
+            "ID": id_unico, "Título": titulo, "Descrição": descricao,
             "Grupo Contábil": str(row.get("Grupo Contábil (ADM/COM/IND)","")).strip(),
             "Dono da Oportunidade": str(row.get("Dono da Oportunidade","")).strip(),
             "CC Dono": str(row.get("Centro de Custo do Dono da Oportunidade","")).strip(),
-            "Conta Orçamento": conta_orc,
-            "Conta Contábil": conta_cont,
+            "Conta Orçamento": conta_orc, "Conta Contábil": conta_cont,
             "Frente de Negócio": frente,
             "Filial": str(row.get("Filial","")).strip(),
             "Nível": str(row.get("Status","N1 - Ideia")).strip() or "N1 - Ideia",
@@ -715,20 +760,15 @@ def importar_base_excel(df, u):
             "Area Craque": str(row.get("Area Craque","")).strip(),
             "Total Estimado 2026": total,
             "Data Prevista N3": str(row.get("Data Prevista N3","")).strip(),
-            "Data Prevista N4": str(row.get("Data Prevista N4","")).strip(),
+            "Data Prevista N4": data_n4,
             "Data Cadastro (N1)": datetime.now().strftime("%d/%m/%Y"),
             "Data Realizada N1": datetime.now().strftime("%d/%m/%Y"),
             "Data Realizada N2":"","Data Realizada N3":"","Data Realizada N4":"",
-            "Submetido Controladoria": False,
-            "Comentário da Semana": "",
+            "Submetido Controladoria": False, "Comentário da Semana": "",
         }
-        for i in range(1,13):
-            try: nova[f"M{i}"] = float(str(row.get(f"M{i}","0")).replace(",",".") or "0")
-            except: nova[f"M{i}"] = 0.0
-        if nova["Data Prevista N4"]:
-            vals = [nova[f"M{i}"] for i in range(1,13)]
-            meses_abs = mapear_valores_para_meses_absolutos(nova["Data Prevista N4"], vals)
-            nova.update(meses_abs)
+        for k,v in vals_m.items(): nova[k] = v
+        # salva meses absolutos
+        nova.update(vals_meses)
         db_fire.collection("oportunidades").document(id_unico).set(nova)
         count += 1
     registrar_log(u,"IMPORTAÇÃO EXCEL",f"{count} oportunidades importadas")
@@ -808,6 +848,31 @@ def gerar_planilha_historico_padrao() -> bytes:
         for i, col in enumerate(colunas):
             ws.write(0, i, col, fmt)
             ws.set_column(i, i, max(len(col)+4, 18))
+    return buf.getvalue()
+
+def gerar_planilha_oportunidades_padrao() -> bytes:
+    """Gera planilha padrão para importação de oportunidades com meses absolutos."""
+    meses_abs = gerar_colunas_meses_absolutos()  # jan_2026 ... dez_2028
+    colunas_base = [
+        "Título","Descrição","Grupo Contábil (ADM/COM/IND)",
+        "Conta Orçamento","Desc. Conta Contábil","Dono da Oportunidade",
+        "Centro de Custo do Dono da Oportunidade","Filial","Status",
+        "Area Craque","Total Estimado 2026",
+        "Data Prevista N3","Data Prevista N4",
+    ]
+    # labels de exibição: jan_2026 → jan/2026
+    todas_colunas = colunas_base + [chave_para_label(m) for m in meses_abs]
+    buf = __import__("io").BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
+        pd.DataFrame(columns=todas_colunas).to_excel(w, index=False, sheet_name="Importação")
+        ws = w.sheets["Importação"]
+        fmt_azul    = w.book.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff"})
+        fmt_laranja = w.book.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff"})
+        cols_laranja = {"Data Prevista N3","Data Prevista N4","Total Estimado 2026"} | set(chave_para_label(m) for m in meses_abs)
+        for i, col in enumerate(todas_colunas):
+            fmt = fmt_laranja if col in cols_laranja else fmt_azul
+            ws.write(0, i, col, fmt)
+            ws.set_column(i, i, max(len(col)+4, 16))
     return buf.getvalue()
 
 # NÃO MEXER NO CÓDIGO QUE ESTÁ DANDO CERTO
