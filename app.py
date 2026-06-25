@@ -75,10 +75,13 @@ def brl(v):
     except: return "R$ 0,00"
 
 def brl_k(v):
-    try:
-        v = float(v)
-        if abs(v) >= 1000: return f"R$ {v/1000:,.1f}k".replace(",",".")
-        return f"R$ {v:,.0f}".replace(",",".")
+    """Mantido por compatibilidade — agora formata igual brl_mil."""
+    try: return f"R$ {float(v):,.0f}".replace(",",".")
+    except: return "R$ 0"
+
+def brl_mil(v):
+    """Formata número como R$ 1.000.000 — sem k, sem casas decimais."""
+    try: return f"R$ {float(v):,.0f}".replace(",",".")
     except: return "R$ 0"
 
 def esta_atrasada(row):
@@ -141,8 +144,8 @@ def montar_tabela_sco(df_in):
         if c in df.columns:
             df[c] = df[c].apply(fmt_data_curta)
 
-    # Título SEMPRE primeiro, depois o restante
-    colunas_base = ["Título","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
+    # Título SEMPRE primeiro, Descrição logo depois
+    colunas_base = ["Título","Descrição","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
         "Conta Orçamento","Conta Contábil",
         "Data Realizada N1","Data Prevista N2","Data Realizada N2",
         "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
@@ -248,8 +251,10 @@ def painel_principal():
         st.markdown(f'<div style="padding:10px 0 20px 0;"><span style="font-size:18px;font-weight:700;color:#fff;">{saudacao}, {u["nome"].split()[0]}!</span><p style="font-size:12px;color:#94a3b8;margin-top:4px;">Perfil: {u["perfil"].upper()}</p></div>',unsafe_allow_html=True)
         menu = []
         if u["perfil"] in ("craque","lider","adm"): menu.extend(["Cadastro de Oportunidade","SCO - Oportunidades"])
+        if u["perfil"] == "diretoria": menu.append("SCO - Oportunidades")
         if u["perfil"] in ("lider","adm","diretoria"): menu.append("Painel Executivo")
-        if u["perfil"]=="adm": menu.extend(["Comitê de Despesas (N1)","Validação Controladoria","Painel de Acessos","Log de Alterações"])
+        if u["perfil"] in ("adm","diretoria"): menu.extend(["Comitê de Despesas (N1)","Validação Controladoria"])
+        if u["perfil"] == "adm": menu.extend(["Painel de Acessos","Log de Alterações"])
         pagina = st.radio("Nav",menu,label_visibility="collapsed")
         st.markdown("<br><hr style='border-color:rgba(255,255,255,0.1);'>",unsafe_allow_html=True)
         if st.button("Sair",use_container_width=True): st.session_state.usuario=None; st.rerun()
@@ -326,8 +331,17 @@ def pagina_sco():
     df = db.ler_oportunidades()
     if df.empty: st.info("Nenhuma oportunidade cadastrada."); return
     df["Nível"] = df["Nível"].astype(str).str.strip()
-    if u["perfil"]=="craque": df = df[df["Craque"].str.lower()==u["nome"].lower()]
-    elif u["perfil"]=="lider": df = df[df["Frente de Negócio"].str.lower()==u["frente"].lower()]
+
+    # filtro por perfil
+    if u["perfil"] == "craque":
+        # craque vê todas as ideias que cadastrou (por nome) + ideias da sua frente
+        mask_craque = df["Craque"].astype(str).str.lower() == u["nome"].lower()
+        mask_frente = df["Frente de Negócio"].astype(str).str.lower() == u.get("frente","").lower() if u.get("frente") else pd.Series(False, index=df.index)
+        df = df[mask_craque | mask_frente]
+    elif u["perfil"] == "lider":
+        df = df[df["Frente de Negócio"].str.lower() == u["frente"].lower()]
+    # adm e diretoria veem tudo
+
     if df.empty: st.info("Nenhuma oportunidade encontrada para seu perfil."); return
 
     # ── FILTROS ────────────────────────────────────────────────────────────────
@@ -399,6 +413,9 @@ def pagina_sco():
         file_name=f"SCO_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
         mime="application/vnd.ms-excel")
 
+    # diretoria: só visualiza, sem ações
+    if u["perfil"] == "diretoria": return
+
     # ── PAINEL DE AÇÕES ────────────────────────────────────────────────────────
     if u["perfil"] in ("lider","adm"):
         st.markdown("---")
@@ -434,6 +451,7 @@ def pagina_sco():
                     nova_desc = st.text_area("Descrição", value=str(row.get("Descrição","")), max_chars=600)
                     novo_gc = st.selectbox("Grupo Contábil", ["ADM","COM","IND"],
                         index=["ADM","COM","IND"].index(row.get("Grupo Contábil","ADM")) if row.get("Grupo Contábil","ADM") in ["ADM","COM","IND"] else 0)
+                    nova_area_craque = st.text_input("Área Craque", value=str(row.get("Area Craque","")))
 
                     ce1,ce2 = st.columns(2)
                     with ce1:
@@ -466,6 +484,7 @@ def pagina_sco():
                     if st.form_submit_button("✏️ Salvar Edições",type="primary"):
                         campos = {
                             "Descrição": nova_desc, "Grupo Contábil": novo_gc,
+                            "Area Craque": nova_area_craque,
                             "Conta Orçamento": nova_orc,
                             "Conta Contábil": nova_cont_sel.split(" - ",1)[-1] if nova_cont_sel else "",
                             "Frente de Negócio": nova_frente,
@@ -479,10 +498,12 @@ def pagina_sco():
                 st.markdown(f"**Status atual:** `{nivel_atual}`")
 
                 if "N1" in nivel_atual:
-                    st.info("ℹ️ Em N1 — aprovação para N2 é feita pelo Comitê de Despesas.")
-                    st.markdown("---")
-                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n1_{id_sel}", use_container_width=True):
-                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+                    st.info("ℹ️ Em N1 — aprovação para N2 e cancelamento são feitos pelo Comitê de Despesas.")
+                    # só adm pode cancelar N1 aqui (líder não pode agir em N1)
+                    if u["perfil"] == "adm":
+                        st.markdown("---")
+                        if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n1_{id_sel}", use_container_width=True):
+                            db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
 
                 elif "N2" in nivel_atual:
                     dpn3 = str(row.get("Data Prevista N3","")).strip()
@@ -606,7 +627,19 @@ def pagina_painel_integrado():
     df_ativas = df_p[df_p["Nível"]!="N0 - Cancelada"]
     orc_data = db.ler_orcamento()
     total_orcado = sum(orc_data.get(f,0.0) for f in frentes)
-    total_realizado = df_p[df_p["Nível"]=="N4 - Implementado"]["Total Estimado 2026"].sum()
+
+    # Total 2026 real: soma apenas meses absolutos jan_2026..dez_2026
+    nomes_m = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+    meses_2026 = [f"{m}_2026" for m in nomes_m]
+    def soma_2026(df_in):
+        total = 0.0
+        for m in meses_2026:
+            if m in df_in.columns:
+                total += pd.to_numeric(df_in[m], errors="coerce").fillna(0.0).sum()
+        return total
+
+    potencial_2026 = soma_2026(df_ativas)
+    total_realizado = soma_2026(df_p[df_p["Nível"]=="N4 - Implementado"])
 
     tab_dash, tab_matriz, tab_evo, tab_ger, tab_excel = st.tabs([
         "📊 Dashboard", "📋 Matriz & Comparativo", "📈 Evolução", "📑 Rel. Gerencial", "📥 Base Excel"
@@ -615,9 +648,9 @@ def pagina_painel_integrado():
     with tab_dash:
         c1,c2,c3,c4,c5 = st.columns(5)
         c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Ideias Ativas</div><div class="kpi-value">{len(df_ativas)}</div></div>',unsafe_allow_html=True)
-        c2.markdown(f'<div class="kpi-container"><div class="kpi-title">Potencial 2026</div><div class="kpi-value-green">{brl_k(df_ativas["Total Estimado 2026"].sum())}</div></div>',unsafe_allow_html=True)
+        c2.markdown(f'<div class="kpi-container"><div class="kpi-title">Potencial 2026</div><div class="kpi-value-green">{brl_mil(potencial_2026)}</div></div>',unsafe_allow_html=True)
         c3.markdown(f'<div class="kpi-container"><div class="kpi-title">Implementadas (N4)</div><div class="kpi-value">{len(df_p[df_p["Nível"]=="N4 - Implementado"])}</div></div>',unsafe_allow_html=True)
-        c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_k(total_orcado)}</div></div>',unsafe_allow_html=True)
+        c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_mil(total_orcado)}</div></div>',unsafe_allow_html=True)
         c5.markdown(f'<div class="kpi-container"><div class="kpi-title">Realizado vs Orçado</div><div class="kpi-value">{(total_realizado/total_orcado*100) if total_orcado>0 else 0:.1f}%</div></div>',unsafe_allow_html=True)
         st.markdown("<br>", unsafe_allow_html=True)
         g1, g2 = st.columns(2)
@@ -745,20 +778,20 @@ def pagina_painel_integrado():
         relatorio = []
         for f in frentes:
             df_f2 = df_p[df_p["Frente de Negócio"]==f]
-            n1 = df_f2[df_f2["Nível"]=="N1 - Ideia"]["Total Estimado 2026"].sum()
-            n2 = df_f2[df_f2["Nível"]=="N2 - Planejamento"]["Total Estimado 2026"].sum()
-            n3 = df_f2[df_f2["Nível"]=="N3 - Execução"]["Total Estimado 2026"].sum()
-            n4 = df_f2[df_f2["Nível"]=="N4 - Implementado"]["Total Estimado 2026"].sum()
+            n1 = soma_2026(df_f2[df_f2["Nível"]=="N1 - Ideia"])
+            n2 = soma_2026(df_f2[df_f2["Nível"]=="N2 - Planejamento"])
+            n3 = soma_2026(df_f2[df_f2["Nível"]=="N3 - Execução"])
+            n4 = soma_2026(df_f2[df_f2["Nível"]=="N4 - Implementado"])
             total = n1+n2+n3+n4
             orc = orc_data.get(f, 0.0)
             relatorio.append({
                 "Frente": f,
-                "N1 - Ideia": brl_k(n1),
-                "N2 - Planejamento": brl_k(n2),
-                "N3 - Execução": brl_k(n3),
-                "N4 - Implementado": brl_k(n4),
-                "Total": brl_k(total),
-                "Orçado": brl_k(orc),
+                "N1 - Ideia": brl_mil(n1),
+                "N2 - Planejamento": brl_mil(n2),
+                "N3 - Execução": brl_mil(n3),
+                "N4 - Implementado": brl_mil(n4),
+                "Total 2026": brl_mil(total),
+                "Orçado": brl_mil(orc),
                 "% Ating. (N4/Orç.)": f"{(n4/orc*100) if orc>0 else 0:.1f}%"
             })
         st.dataframe(pd.DataFrame(relatorio), use_container_width=True, hide_index=True)
@@ -854,9 +887,10 @@ def pagina_admin():
 
     with tab_import:
         st.markdown("**Passo 1:** Baixe a planilha padrão, preencha e reimporte.")
-        padrao = db.gerar_planilha_padrao()
+        padrao = db.gerar_planilha_oportunidades_padrao()
         st.download_button("📥 Baixar Planilha Padrão",data=padrao,
             file_name="Modelo_Importacao_Essencia.xlsx",mime="application/vnd.ms-excel")
+        st.info("💡 Os meses absolutos (jan/2026, fev/2026...) são opcionais. Se a coluna 'Data Prevista N4' estiver vazia, o sistema detecta automaticamente pelo primeiro mês com valor.")
         st.markdown("**Passo 2:** Importe o arquivo preenchido.")
         arquivo = st.file_uploader("Selecione o arquivo (.xlsx)",type=["xlsx"])
         if arquivo and st.button("🚀 Processar e Importar",type="primary"):
