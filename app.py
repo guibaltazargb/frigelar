@@ -185,17 +185,20 @@ def gerar_excel_sco(df_in) -> bytes:
     df = df_in.copy()
     meses_abs = db.gerar_colunas_meses_absolutos()
 
-    # garante meses absolutos numéricos
     for m in meses_abs:
         if m not in df.columns: df[m] = 0.0
         else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
-    for i in range(1, 13):
-        col = f"M{i}"
-        if col not in df.columns: df[col] = 0.0
-        else: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-    # extras: exclui internas, meses legados com barra, M1-M12 e variantes
-    import re
+    colunas_priority = [
+        "Título","Descrição","Nível","Grupo Contábil","Frente de Negócio",
+        "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono",
+        "Filial","Craque","Area Craque","Comentário da Semana",
+        "Justificativa Cancelamento","ID","Submetido Controladoria",
+        "Data Realizada N1","Data Prevista N2","Data Realizada N2",
+        "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
+        "Total Estimado 2026",
+    ] + meses_abs
+
     padrao_mes_legado = re.compile(r'^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)/\d{4}$')
     padrao_m_relativo = re.compile(r'^M\d{1,2}$')
     extras = [
@@ -209,8 +212,7 @@ def gerar_excel_sco(df_in) -> bytes:
 
     cols_laranja = {
         "Data Prevista N2","Data Prevista N3","Data Prevista N4",
-        "Total Estimado 2026","M1","M2","M3","M4","M5","M6",
-        "M7","M8","M9","M10","M11","M12"
+        "Total Estimado 2026",
     } | set(meses_abs)
 
     buf = io.BytesIO()
