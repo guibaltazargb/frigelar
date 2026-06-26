@@ -87,28 +87,38 @@ def brl_mil(v):
 def esta_atrasada(row):
     hoje = datetime.now().date()
     nivel = str(row.get("Nível","")).strip()
+    def parse_data(s):
+        s = str(s).strip().split(" ")[0]
+        partes = s.split("/")
+        try:
+            if len(partes) == 3: return datetime(int(partes[2][:4]), int(partes[1]), int(partes[0])).date()
+            if len(partes) == 2: return datetime(int(partes[1][:4]), int(partes[0]), 1).date()
+        except: pass
+        return None
     try:
         if "N2" in nivel:
-            prev = row.get("Data Prevista N3","")
-            if prev:
-                d = datetime.strptime(prev.strip(), "%d/%m/%Y").date()
-                return hoje > d
+            d = parse_data(row.get("Data Prevista N3",""))
+            return hoje > d if d else False
         if "N3" in nivel:
-            prev = row.get("Data Prevista N4","")
-            if prev:
-                d = datetime.strptime(prev.strip(), "%d/%m/%Y").date()
-                return hoje > d
+            d = parse_data(row.get("Data Prevista N4",""))
+            return hoje > d if d else False
     except: pass
     return False
 
 # ── HELPER: monta tabela SCO ──────────────────────────────────────────────────
 def fmt_data_curta(val):
-    """Converte dd/mm/aaaa → mm/aaaa. Retorna vazio se inválido."""
+    """Converte qualquer formato de data para mm/aaaa. Trata dd/mm/aaaa, dd/mm/aaaa HH:MM, mm/aaaa."""
     s = str(val).strip()
-    if not s or s == "nan": return ""
+    if not s or s in ("nan","None",""): return ""
+    # remove horário se existir: "01/08/2026 14:30" → "01/08/2026"
+    s = s.split(" ")[0].strip()
     partes = s.split("/")
-    if len(partes) >= 3: return f"{partes[1]}/{partes[2]}"
-    if len(partes) == 2: return s  # já mm/aaaa
+    if len(partes) == 3:
+        # dd/mm/aaaa → mm/aaaa
+        return f"{partes[1]}/{partes[2][:4]}"
+    if len(partes) == 2:
+        # já mm/aaaa
+        return f"{partes[0]}/{partes[1][:4]}"
     return s
 
 def montar_tabela_sco(df_in):
@@ -173,7 +183,7 @@ def gerar_excel_sco(df_in) -> bytes:
     """Gera Excel com todas as colunas do documento + meses absolutos."""
     import re
     df = df_in.copy()
-    meses_abs = db.gerar_colunas_meses_absolutos()  # jan_2026 etc (com underscore)
+    meses_abs = db.gerar_colunas_meses_absolutos()
 
     # garante meses absolutos numéricos
     for m in meses_abs:
@@ -184,26 +194,16 @@ def gerar_excel_sco(df_in) -> bytes:
         if col not in df.columns: df[col] = 0.0
         else: df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
 
-    # padrão de mês absoluto legado (com barra): jan/2026, fev/2027 etc
+    # extras: exclui internas, meses legados com barra, M1-M12 e variantes
+    import re
     padrao_mes_legado = re.compile(r'^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)/\d{4}$')
-
-    colunas_priority = [
-        "Título","Descrição","Nível","Grupo Contábil","Frente de Negócio",
-        "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono",
-        "Filial","Craque","Area Craque","Comentário da Semana",
-        "Justificativa Cancelamento","ID","Submetido Controladoria",
-        "Data Realizada N1","Data Prevista N2","Data Realizada N2",
-        "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
-        "Total Estimado 2026",
-        "M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12",
-    ] + meses_abs
-
-    # extras: qualquer coluna que não seja priority, não seja interna (_) e não seja mês legado
+    padrao_m_relativo = re.compile(r'^M\d{1,2}$')
     extras = [
         c for c in df.columns
         if c not in colunas_priority
         and not c.startswith("_")
         and not padrao_mes_legado.match(str(c))
+        and not padrao_m_relativo.match(str(c))
     ]
     todas = [c for c in colunas_priority if c in df.columns] + [c for c in extras if c in df.columns]
 
@@ -253,8 +253,8 @@ def painel_principal():
         if u["perfil"] in ("craque","lider","adm"): menu.extend(["Cadastro de Oportunidade","SCO - Oportunidades"])
         if u["perfil"] == "diretoria": menu.append("SCO - Oportunidades")
         if u["perfil"] in ("lider","adm","diretoria"): menu.append("Painel Executivo")
-        if u["perfil"] in ("adm","diretoria"): menu.extend(["Comitê de Despesas (N1)","Validação Controladoria"])
-        if u["perfil"] == "adm": menu.extend(["Painel de Acessos","Log de Alterações"])
+        if u["perfil"] in ("adm","diretoria"): menu.append("Comitê de Despesas (N1)")
+        if u["perfil"] == "adm": menu.extend(["Validação Controladoria","Painel de Acessos","Log de Alterações"])
         pagina = st.radio("Nav",menu,label_visibility="collapsed")
         st.markdown("<br><hr style='border-color:rgba(255,255,255,0.1);'>",unsafe_allow_html=True)
         if st.button("Sair",use_container_width=True): st.session_state.usuario=None; st.rerun()
@@ -438,20 +438,30 @@ def pagina_sco():
                         if nc.strip(): db.adicionar_comentario(id_sel,nc,u); st.success("Salvo!"); st.rerun()
                         else: st.warning("Digite algo.")
 
+
             with tab_e:
                 df_pc = db.ler_plano_contas()
-                st.info("""ℹ️ **Guia de preenchimento de datas e valores:**
-- **Data N3** = data prevista para início da execução da ideia.
-- **Data N4** = data prevista para início da **captura do ganho**.
-- Os valores M1 a M12 representam os ganhos projetados **a partir do mês em que a ideia entra em N4**.
-- Exemplo: se a Data N4 prevista é agosto/2026, M1 = ago/26, M2 = set/26, M3 = out/26, e assim por diante.
-- O sistema mapeará automaticamente para os meses absolutos na exportação Excel.""")
+                st.info("""ℹ️ **Guia de preenchimento:**
+- **Data N3** = mês previsto para início da execução.
+- **Data N4** = mês previsto para início da captura do ganho.
+- Ao selecionar Data N4, os campos de valor aparecem com os meses absolutos (tipo DATAM).
+- Ex: Data N4 = 08/2026 → campos ago/2026, set/2026, out/2026... até 12 meses ou dez/2028.""")
+
+                opcoes_mes = [""] + db.gerar_opcoes_mes_ano()
+
+                def normaliza_mes_ano(s):
+                    if not s: return ""
+                    partes = str(s).replace(" ","").split("/")
+                    if len(partes) == 3: return f"{partes[1]}/{partes[2][:4]}"
+                    if len(partes) == 2 and len(partes[0]) == 2: return s[:7]
+                    return ""
 
                 with st.form(f"fe_{id_sel}"):
                     nova_desc = st.text_area("Descrição", value=str(row.get("Descrição","")), max_chars=600)
-                    novo_gc = st.selectbox("Grupo Contábil", ["ADM","COM","IND"],
+                    cg1, cg2 = st.columns(2)
+                    novo_gc = cg1.selectbox("Grupo Contábil", ["ADM","COM","IND"],
                         index=["ADM","COM","IND"].index(row.get("Grupo Contábil","ADM")) if row.get("Grupo Contábil","ADM") in ["ADM","COM","IND"] else 0)
-                    nova_area_craque = st.text_input("Área Craque", value=str(row.get("Area Craque","")))
+                    nova_area_craque = cg2.text_input("Área Craque", value=str(row.get("Area Craque","")))
 
                     ce1,ce2 = st.columns(2)
                     with ce1:
@@ -470,18 +480,34 @@ def pagina_sco():
                     if nova_frente: st.info(f"Frente detectada: **{nova_frente}**")
 
                     cd1e,cd2e = st.columns(2)
-                    nd3 = cd1e.text_input("Data Prevista N3 (dd/mm/aaaa)", value=str(row.get("Data Prevista N3","")))
-                    nd4 = cd2e.text_input("Data Prevista N4 (dd/mm/aaaa)", value=str(row.get("Data Prevista N4","")))
+                    n3_norm = normaliza_mes_ano(str(row.get("Data Prevista N3","")))
+                    n4_norm = normaliza_mes_ano(str(row.get("Data Prevista N4","")))
+                    idx_n3 = opcoes_mes.index(n3_norm) if n3_norm in opcoes_mes else 0
+                    idx_n4 = opcoes_mes.index(n4_norm) if n4_norm in opcoes_mes else 0
+                    nd3 = cd1e.selectbox("Data Prevista N3 (mm/aaaa)", opcoes_mes, index=idx_n3)
+                    nd4 = cd2e.selectbox("Data Prevista N4 (mm/aaaa)", opcoes_mes, index=idx_n4)
 
-                    st.markdown("**Valores mensais de economia (M1 a M12):**")
-                    cols_m = st.columns(6)
-                    vals_m = {}
-                    for i in range(1,13):
-                        with cols_m[(i-1)%6]:
-                            v_atual = float(row.get(f"M{i}",0) or 0)
-                            vals_m[f"M{i}"] = st.number_input(f"M{i}", value=v_atual, step=100.0, key=f"m{i}_{id_sel}")
+                    vals_abs = {}
+                    if nd4:
+                        st.markdown("**Valores de economia por mês absoluto (a partir de N4):**")
+                        meses_form = []
+                        for i in range(12):
+                            prox = db.datam(nd4, i)
+                            if not prox or prox > "12/2028": break
+                            chave = db.mes_ano_para_chave(prox)
+                            if chave: meses_form.append((prox, chave))
+                        if meses_form:
+                            cols_abs = st.columns(min(6, len(meses_form)))
+                            for idx_m, (label_m, chave_m) in enumerate(meses_form):
+                                with cols_abs[idx_m % 6]:
+                                    v_atual = float(row.get(chave_m, 0) or 0)
+                                    vals_abs[chave_m] = st.number_input(
+                                        label_m, value=v_atual, step=100.0, key=f"{chave_m}_{id_sel}"
+                                    )
+                    else:
+                        st.info("Selecione a Data Prevista N4 para habilitar os campos de valor mensal.")
 
-                    if st.form_submit_button("✏️ Salvar Edições",type="primary"):
+                    if st.form_submit_button("✏️ Salvar Edições", type="primary"):
                         campos = {
                             "Descrição": nova_desc, "Grupo Contábil": novo_gc,
                             "Area Craque": nova_area_craque,
@@ -490,9 +516,10 @@ def pagina_sco():
                             "Frente de Negócio": nova_frente,
                             "Data Prevista N3": nd3, "Data Prevista N4": nd4,
                         }
-                        for k,v in vals_m.items(): campos[k] = v
+                        campos.update(vals_abs)
                         db.editar_campos_oportunidade(id_sel, campos, u)
                         st.success("Campos atualizados!"); st.rerun()
+
 
             with tab_n:
                 st.markdown(f"**Status atual:** `{nivel_atual}`")
