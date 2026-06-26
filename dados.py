@@ -461,39 +461,38 @@ def normalizar_frente(frente: str) -> str:
     return f
 
 # ── MESES ABSOLUTOS (jan_2026 a dez_2028) ─────────────────────────────────────
+NOMES_MESES = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+
 def gerar_colunas_meses_absolutos():
-    """Retorna lista de chaves de meses absolutos com _ (compatível com Firestore)."""
-    meses = []
-    nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
-    for ano in [2026, 2027, 2028]:
-        for m in nomes:
-            meses.append(f"{m}_{ano}")
-    return meses
+    """Retorna lista de chaves jan_2026..dez_2028 (compatível com Firestore)."""
+    return [f"{m}_{ano}" for ano in [2026,2027,2028] for m in NOMES_MESES]
 
 def chave_para_label(chave: str) -> str:
-    """Converte jan_2026 → jan/2026 para exibição."""
-    return chave.replace("_", "/", 1) if "_" in chave else chave
+    """Converte jan_2026 -> jan/2026 para exibição."""
+    return chave.replace("_","/",1) if "_" in chave else chave
 
-def mapear_valores_para_meses_absolutos(data_n4_str, valores_mensais):
-    """Recebe data N4 (dd/mm/aaaa) e lista de 12 valores, retorna dict {mes_abs: valor}"""
-    resultado = {m: 0.0 for m in gerar_colunas_meses_absolutos()}
-    if not data_n4_str or len(valores_mensais) != 12:
-        return resultado
+def gerar_opcoes_mes_ano() -> list:
+    """Retorna lista de opcoes mm/aaaa para selectbox: 01/2026..12/2028."""
+    return [f"{mes:02d}/{ano}" for ano in [2026,2027,2028] for mes in range(1,13)]
+
+def datam(mes_ano_str: str, n: int) -> str:
+    """Retorna o mes+n a partir de mm/aaaa. Tipo DATAM do Excel."""
     try:
-        partes = data_n4_str.strip().split("/")
-        mes_inicio = int(partes[1])
-        ano_inicio = int(partes[2])
-        for i, val in enumerate(valores_mensais):
-            mes_abs = mes_inicio + i
-            ano_abs = ano_inicio + (mes_abs - 1) // 12
-            mes_abs = ((mes_abs - 1) % 12) + 1
-            nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
-            chave = f"{nomes[mes_abs-1]}_{ano_abs}"
-            if chave in resultado:
-                resultado[chave] = float(val)
+        mes, ano = int(mes_ano_str[:2]), int(mes_ano_str[3:])
+        total = (ano - 2026) * 12 + (mes - 1) + n
+        ano_r = 2026 + total // 12
+        mes_r = total % 12 + 1
+        return f"{mes_r:02d}/{ano_r}"
     except:
-        pass
-    return resultado
+        return ""
+
+def mes_ano_para_chave(mes_ano_str: str) -> str:
+    """Converte 08/2026 -> ago_2026."""
+    try:
+        mes, ano = int(mes_ano_str[:2]), int(mes_ano_str[3:])
+        return f"{NOMES_MESES[mes-1]}_{ano}"
+    except:
+        return ""
 
 # ── AUTENTICAÇÃO ───────────────────────────────────────────────────────────────
 def autenticar(login, senha):
@@ -553,7 +552,9 @@ def cadastrar_oportunidade(dados, usuario):
         "Total Estimado 2026": float(dados.get("ganho_2026",0)),
         "Submetido Controladoria": False,
     }
-    for i in range(1,13): nova[f"M{i}"] = 0.0
+    # inicializa todos os meses absolutos com zero
+    for m in gerar_colunas_meses_absolutos():
+        nova[m] = 0.0
     doc_ref = db_fire.collection("oportunidades").add(nova)
     id_gerado = doc_ref[1].id
     registrar_log(usuario, "CADASTRO", f"Nova oportunidade: {nova['Título']}", id_gerado)
@@ -587,15 +588,54 @@ def adicionar_comentario(id_, texto, usuario):
     registrar_log(usuario, "COMENTÁRIO", f"{texto[:60]}", id_)
 
 def editar_campos_oportunidade(id_, campos, usuario):
-    # Se tem Data Prevista N4 e valores mensais, mapeia para meses absolutos
-    data_n4 = campos.get("Data Prevista N4","")
-    valores_m = [campos.get(f"M{i}",0) for i in range(1,13)]
-    if data_n4 and any(v != 0 for v in valores_m):
-        meses_abs = mapear_valores_para_meses_absolutos(data_n4, valores_m)
-        campos.update(meses_abs)
-    # Recalcula total
-    total = sum(float(campos.get(f"M{i}",0) or 0) for i in range(1,13))
-    if total > 0: campos["Total Estimado 2026"] = total
+    """
+    Salva campos editados. Se vier Data Prevista N4 (mm/aaaa) com valores absolutos,
+    salva direto. Se a ideia ainda tiver M1-M12 legados e não tiver absolutos,
+    converte agora usando a Data N4.
+    """
+    meses = gerar_colunas_meses_absolutos()
+
+    # verifica se há valores absolutos nos campos enviados
+    tem_abs_novos = any(campos.get(m, 0) for m in meses)
+
+    if not tem_abs_novos:
+        # ideia antiga com M1-M12: tenta converter usando Data N4
+        data_n4 = campos.get("Data Prevista N4","")
+        if not data_n4:
+            # busca do banco
+            doc = db_fire.collection("oportunidades").document(id_).get()
+            data_n4 = doc.to_dict().get("Data Prevista N4","") if doc.exists else ""
+
+        if data_n4:
+            doc = db_fire.collection("oportunidades").document(id_).get()
+            d = doc.to_dict() if doc.exists else {}
+            for i in range(1,13):
+                v = float(d.get(f"M{i}", 0) or 0)
+                if v != 0:
+                    chave = mes_ano_para_chave(datam(data_n4, i-1))
+                    if chave and chave in set(meses):
+                        campos[chave] = v
+
+    # recalcula Total Estimado 2026 pelos meses absolutos de 2026
+    total_2026 = sum(
+        float(campos.get(f"{m}_2026", 0) or 0)
+        for m in NOMES_MESES
+    )
+    # também considera o que já estava no banco para os meses não editados
+    if total_2026 == 0:
+        doc = db_fire.collection("oportunidades").document(id_).get()
+        d = doc.to_dict() if doc.exists else {}
+        total_2026 = sum(float(d.get(f"{m}_2026",0) or 0) for m in NOMES_MESES)
+        # adiciona o que veio nos campos
+        total_2026 += sum(float(campos.get(f"{m}_2026",0) or 0) for m in NOMES_MESES)
+
+    if total_2026 > 0:
+        campos["Total Estimado 2026"] = total_2026
+
+    # remove M1-M12 legados dos campos (não salva mais)
+    for i in range(1,13):
+        campos.pop(f"M{i}", None)
+
     db_fire.collection("oportunidades").document(id_).update(campos)
     registrar_log(usuario, "EDIÇÃO DE CAMPOS", f"Campos: {', '.join(list(campos.keys())[:5])}", id_)
 
@@ -673,10 +713,8 @@ def importar_base_excel(df, u):
     lookup_cont = {norm(k): v for k,v in zip(df_pc["ContaCont"], df_pc["Frente"])}
     lookup_orc  = {norm(k): v for k,v in zip(df_pc["ContaOrc"],  df_pc["Frente"])}
 
-    # mapeia labels de meses absolutos (jan/2026) para chaves (jan_2026)
     meses_abs = gerar_colunas_meses_absolutos()
     label_para_chave = {chave_para_label(m): m for m in meses_abs}
-    nomes_m = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
 
     df = df.dropna(how="all").fillna("")
     count = 0
@@ -684,9 +722,6 @@ def importar_base_excel(df, u):
         titulo = str(row.get("Título","")).strip()
         if not titulo or titulo.lower() == "nan": continue
         id_unico = str(uuid.uuid4()).split("-")[0][:6].upper()
-
-        try: total = float(str(row.get("Total Estimado 2026","0")).replace(",",".") or "0")
-        except: total = 0.0
 
         conta_cont = str(row.get("Desc. Conta Contábil","")).strip()
         conta_orc  = str(row.get("Conta Orçamento","")).strip()
@@ -696,56 +731,29 @@ def importar_base_excel(df, u):
         frente = normalizar_frente(frente_raw)
 
         descricao = str(row.get("Descrição","")).strip()
-        if not descricao or descricao.lower() == "nan":
-            descricao = titulo
+        if not descricao or descricao.lower() == "nan": descricao = titulo
 
-        # lê meses absolutos pela label jan/2026
-        vals_meses = {}
+        # lê meses absolutos pelo label jan/2026 → chave jan_2026
+        vals_abs = {}
         for label, chave in label_para_chave.items():
-            val_raw = str(row.get(label,"0")).replace(",",".")
-            try: vals_meses[chave] = float(val_raw or "0")
-            except: vals_meses[chave] = 0.0
-
-        # também aceita M1..M12 legados se não houver meses absolutos preenchidos
-        tem_abs = any(v != 0 for v in vals_meses.values())
-        vals_m = {}
-        if not tem_abs:
-            for i in range(1,13):
-                try: vals_m[f"M{i}"] = float(str(row.get(f"M{i}","0")).replace(",",".") or "0")
-                except: vals_m[f"M{i}"] = 0.0
+            try: vals_abs[chave] = float(str(row.get(label,"0")).replace(",",".") or "0")
+            except: vals_abs[chave] = 0.0
 
         # detecta Data N4 pelo primeiro mês absoluto com valor se vazia
         data_n4 = str(row.get("Data Prevista N4","")).strip()
         if not data_n4:
             for chave in meses_abs:
-                if vals_meses.get(chave, 0) != 0:
-                    # converte jan_2026 → 01/01/2026
+                if vals_abs.get(chave, 0) != 0:
                     partes = chave.split("_")
-                    mes_idx = nomes_m.index(partes[0]) + 1
-                    ano = partes[1]
-                    data_n4 = f"01/{mes_idx:02d}/{ano}"
+                    mes_idx = NOMES_MESES.index(partes[0]) + 1
+                    data_n4 = f"{mes_idx:02d}/{partes[1]}"
                     break
 
-        # se tem meses absolutos, reconstrói M1..M12 a partir deles e da data N4
-        if tem_abs and data_n4:
-            # detecta posição relativa
-            try:
-                partes = data_n4.split("/")
-                mes_ini = int(partes[1]); ano_ini = int(partes[2])
-                for i in range(1,13):
-                    mes_abs_i = mes_ini + (i-1)
-                    ano_abs_i = ano_ini + (mes_abs_i-1)//12
-                    mes_abs_i = ((mes_abs_i-1)%12)+1
-                    chave = f"{nomes_m[mes_abs_i-1]}_{ano_abs_i}"
-                    vals_m[f"M{i}"] = vals_meses.get(chave, 0.0)
-            except:
-                for i in range(1,13): vals_m[f"M{i}"] = 0.0
-        elif not vals_m:
-            for i in range(1,13): vals_m[f"M{i}"] = 0.0
-
-        # recalcula total se necessário
-        if total == 0:
-            total = sum(vals_m.values()) if vals_m else sum(vals_meses.values())
+        # total = soma dos meses absolutos de 2026
+        total_2026 = sum(float(vals_abs.get(f"{m}_2026", 0)) for m in NOMES_MESES)
+        try: total_raw = float(str(row.get("Total Estimado 2026","0")).replace(",",".") or "0")
+        except: total_raw = 0.0
+        total = total_2026 if total_2026 > 0 else total_raw
 
         nova = {
             "ID": id_unico, "Título": titulo, "Descrição": descricao,
@@ -766,9 +774,8 @@ def importar_base_excel(df, u):
             "Data Realizada N2":"","Data Realizada N3":"","Data Realizada N4":"",
             "Submetido Controladoria": False, "Comentário da Semana": "",
         }
-        for k,v in vals_m.items(): nova[k] = v
-        # salva meses absolutos
-        nova.update(vals_meses)
+        # salva meses absolutos — sem M1-M12
+        nova.update(vals_abs)
         db_fire.collection("oportunidades").document(id_unico).set(nova)
         count += 1
     registrar_log(u,"IMPORTAÇÃO EXCEL",f"{count} oportunidades importadas")
