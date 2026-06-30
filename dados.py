@@ -422,33 +422,112 @@ def ler_centros_custo() -> list:
         "40.03 - Indústria - Vendas Externas","40.05 - Indústria - Produção",
     ]
 
+FILIAIS_DATA = [
+    {"cod":1,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"LOJA"},
+    {"cod":2,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"CD"},
+    {"cod":3,"cidade":"CURITIBA","uf":"PR","regional":"S","est":"LOJA"},
+    {"cod":4,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":5,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"IND"},
+    {"cod":6,"cidade":"RECIFE","uf":"PE","regional":"N/NE","est":"LOJA"},
+    {"cod":7,"cidade":"RIBEIRAO PRETO","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":8,"cidade":"RIO DE JANEIRO","uf":"RJ","regional":"SE/CO","est":"LOJA"},
+    {"cod":9,"cidade":"JOAO PESSOA","uf":"PB","regional":"N/NE","est":"LOJA"},
+    {"cod":10,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"LOJA"},
+    {"cod":11,"cidade":"EXTREMA","uf":"MG","regional":"SE/CO","est":"CD"},
+    {"cod":12,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"LOJA"},
+    {"cod":13,"cidade":"VITORIA","uf":"ES","regional":"SE/CO","est":"LOJA"},
+    {"cod":14,"cidade":"CACHOEIRINHA","uf":"RS","regional":"S","est":"CD"},
+    {"cod":15,"cidade":"CURITIBA","uf":"PR","regional":"S","est":"CD"},
+    {"cod":16,"cidade":"CACHOEIRINHA","uf":"RS","regional":"S","est":"IND"},
+    {"cod":17,"cidade":"ITAITINGA","uf":"CE","regional":"N/NE","est":"CD"},
+    {"cod":18,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":19,"cidade":"CAMPINAS","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":20,"cidade":"SAO JOSE DO RIO PRETO","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":21,"cidade":"GOIANIA","uf":"GO","regional":"SE/CO","est":"LOJA"},
+    {"cod":22,"cidade":"JOAO PESSOA","uf":"PB","regional":"N/NE","est":"IND"},
+    {"cod":23,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":24,"cidade":"FORTALEZA","uf":"CE","regional":"N/NE","est":"LOJA"},
+    {"cod":25,"cidade":"VILA VELHA","uf":"ES","regional":"SE/CO","est":"LOJA"},
+    {"cod":26,"cidade":"JOAO PESSOA","uf":"PB","regional":"N/NE","est":"LOJA"},
+    {"cod":27,"cidade":"VILA VELHA","uf":"ES","regional":"WEB","est":"CD"},
+    {"cod":28,"cidade":"CACHOEIRINHA","uf":"RS","regional":"S","est":"IND"},
+    {"cod":29,"cidade":"CURITIBA","uf":"PR","regional":"S","est":"LOJA"},
+    {"cod":30,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"CORP"},
+    {"cod":31,"cidade":"BRASILIA","uf":"DF","regional":"SE/CO","est":"LOJA"},
+    {"cod":32,"cidade":"BELO HORIZONTE","uf":"MG","regional":"SE/CO","est":"LOJA"},
+    {"cod":33,"cidade":"SAO JOSE","uf":"SC","regional":"S","est":"LOJA"},
+    {"cod":34,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":35,"cidade":"SALVADOR","uf":"BA","regional":"N/NE","est":"LOJA"},
+    {"cod":36,"cidade":"NATAL","uf":"RN","regional":"N/NE","est":"LOJA"},
+    {"cod":37,"cidade":"BELEM","uf":"PA","regional":"N/NE","est":"LOJA"},
+    {"cod":38,"cidade":"ANANINDEUA","uf":"PA","regional":"N/NE","est":"LOJA"},
+    {"cod":39,"cidade":"MANAUS","uf":"AM","regional":"N/NE","est":"LOJA"},
+    {"cod":40,"cidade":"VILA VELHA","uf":"ES","regional":"SE/CO","est":"CD"},
+    {"cod":41,"cidade":"RECIFE","uf":"PE","regional":"N/NE","est":"LOJA"},
+    {"cod":42,"cidade":"CAMPINAS","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":43,"cidade":"UBERLANDIA","uf":"MG","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":44,"cidade":"SAO JOSE DOS CAMPOS","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":45,"cidade":"PIRACICABA","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":46,"cidade":"GUARULHOS","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":47,"cidade":"MANAUS","uf":"AM","regional":"N/NE","est":"IND"},
+    {"cod":48,"cidade":"ITAJAI","uf":"SC","regional":"S","est":"LOJA"},
+    {"cod":49,"cidade":"NAVEGANTES","uf":"SC","regional":"S","est":"CD"},
+    {"cod":50,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":51,"cidade":"RIO DE JANEIRO","uf":"RJ","regional":"SE/CO","est":"LOJA"},
+    {"cod":52,"cidade":"EXTREMA","uf":"MG","regional":"SE/CO","est":"CD"},
+    {"cod":53,"cidade":"CUIABA","uf":"MT","regional":"SE/CO","est":"LOJA"},
+    {"cod":54,"cidade":"FLORIANOPOLIS","uf":"SC","regional":"S","est":"LOJA"},
+    {"cod":55,"cidade":"CUIABA","uf":"MT","regional":"SE/CO","est":"CD"},
+    {"cod":56,"cidade":"SANTOS","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":57,"cidade":"TERESINA","uf":"PI","regional":"N/NE","est":"LOJA"},
+    {"cod":58,"cidade":"SOROCABA","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":59,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":60,"cidade":"SAO BERNARDO DO CAMPO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":61,"cidade":"RIO DE JANEIRO","uf":"RJ","regional":"SE/CO","est":"LOJA"},
+    {"cod":62,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":63,"cidade":"CAMPO GRANDE","uf":"MS","regional":"SE/CO","est":"LOJA"},
+    {"cod":64,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"IND"},
+    {"cod":65,"cidade":"MACEIO","uf":"AL","regional":"N/NE","est":"LOJA"},
+    {"cod":66,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":67,"cidade":"JOINVILLE","uf":"SC","regional":"S","est":"LOJA"},
+    {"cod":68,"cidade":"LONDRINA","uf":"PR","regional":"S","est":"LOJA"},
+    {"cod":69,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"LOJA"},
+    {"cod":70,"cidade":"GARUVA","uf":"SC","regional":"S","est":"CD"},
+    {"cod":71,"cidade":"VILA VELHA","uf":"ES","regional":"SE/CO","est":"LOJA"},
+    {"cod":72,"cidade":"CANOAS","uf":"RS","regional":"S","est":"LOJA"},
+    {"cod":73,"cidade":"SIMOES FILHO","uf":"BA","regional":"N/NE","est":"CD"},
+    {"cod":74,"cidade":"LAURO DE FREITAS","uf":"BA","regional":"N/NE","est":"LOJA"},
+    {"cod":75,"cidade":"TERESINA","uf":"PI","regional":"N/NE","est":"CD"},
+    {"cod":76,"cidade":"CAJAMAR","uf":"SP","regional":"SP","est":"CD"},
+    {"cod":77,"cidade":"NOVO HAMBURGO","uf":"RS","regional":"S","est":"LOJA"},
+    {"cod":78,"cidade":"ANANINDEUA","uf":"PA","regional":"N/NE","est":"CD"},
+    {"cod":79,"cidade":"PASSO FUNDO","uf":"RS","regional":"S","est":"LOJA"},
+    {"cod":80,"cidade":"FEIRA DE SANTANA","uf":"BA","regional":"N/NE","est":"LOJA"},
+    {"cod":81,"cidade":"APARECIDA DE GOIANIA","uf":"GO","regional":"SE/CO","est":"LOJA"},
+    {"cod":82,"cidade":"BRASILIA","uf":"DF","regional":"SE/CO","est":"LOJA"},
+    {"cod":83,"cidade":"ANAPOLIS","uf":"GO","regional":"SE/CO","est":"LOJA"},
+    {"cod":84,"cidade":"SAO JOSE DO RIO PRETO","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
+    {"cod":85,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"SAC"},
+    {"cod":86,"cidade":"FORTALEZA","uf":"CE","regional":"N/NE","est":"LOJA"},
+]
+
 def ler_filiais() -> list:
-    return [
-        "1 - PORTO ALEGRE (RS)","2 - OSASCO (SP)","3 - CURITIBA (PR)","4 - SAO PAULO (SP)",
-        "5 - OSASCO (SP)","6 - RECIFE (PE)","7 - RIBEIRAO PRETO (SP)","8 - RIO DE JANEIRO (RJ)",
-        "9 - JOAO PESSOA (PB)","10 - PORTO ALEGRE (RS)","11 - EXTREMA (MG)","12 - PORTO ALEGRE (RS)",
-        "13 - VITORIA (ES)","14 - CACHOEIRINHA (RS)","15 - CURITIBA (PR)","16 - CACHOEIRINHA (RS)",
-        "17 - ITAITINGA (CE)","18 - SAO PAULO (SP)","19 - CAMPINAS (SP)",
-        "20 - SAO JOSE DO RIO PRETO (SP)","21 - GOIANIA (GO)","22 - JOAO PESSOA (PB)",
-        "23 - SAO PAULO (SP)","24 - FORTALEZA (CE)","25 - VILA VELHA (ES)","26 - JOAO PESSOA (PB)",
-        "27 - VILA VELHA (ES)","28 - CACHOEIRINHA (RS)","29 - CURITIBA (PR)","30 - PORTO ALEGRE (RS)",
-        "31 - BRASILIA (DF)","32 - BELO HORIZONTE (MG)","33 - SAO JOSE (SC)","34 - SAO PAULO (SP)",
-        "35 - SALVADOR (BA)","36 - NATAL (RN)","37 - BELEM (PA)","38 - ANANINDEUA (PA)",
-        "39 - MANAUS (AM)","40 - VILA VELHA (ES)","41 - RECIFE (PE)","42 - CAMPINAS (SP)",
-        "43 - UBERLANDIA (MG)","44 - SAO JOSE DOS CAMPOS (SP)","45 - PIRACICABA (SP)",
-        "46 - GUARULHOS (SP)","47 - MANAUS (AM)","48 - ITAJAI (SC)","49 - NAVEGANTES (SC)",
-        "50 - OSASCO (SP)","51 - RIO DE JANEIRO (RJ)","52 - EXTREMA (MG)","53 - CUIABA (MT)",
-        "54 - FLORIANOPOLIS (SC)","55 - CUIABA (MT)","56 - SANTOS (SP)","57 - TERESINA (PI)",
-        "58 - SOROCABA (SP)","59 - SAO PAULO (SP)","60 - SAO BERNARDO DO CAMPO (SP)",
-        "61 - RIO DE JANEIRO (RJ)","62 - SAO PAULO (SP)","63 - CAMPO GRANDE (MS)","64 - OSASCO (SP)",
-        "65 - MACEIO (AL)","66 - SAO PAULO (SP)","67 - JOINVILLE (SC)","68 - LONDRINA (PR)",
-        "69 - OSASCO (SP)","70 - GARUVA (SC)","71 - VILA VELHA (ES)","72 - CANOAS (RS)",
-        "73 - SIMOES FILHO (BA)","74 - LAURO DE FREITAS (BA)","75 - TERESINA (PI)","76 - CAJAMAR (SP)",
-        "77 - NOVO HAMBURGO (RS)","78 - ANANINDEUA (PA)","79 - PASSO FUNDO (RS)",
-        "80 - FEIRA DE SANTANA (BA)","81 - APARECIDA DE GOIANIA (GO)","82 - BRASILIA (DF)",
-        "83 - ANAPOLIS (GO)","84 - SAO JOSE DO RIO PRETO (SP)","85 - PORTO ALEGRE (RS)",
-        "86 - FORTALEZA (CE)",
-    ]
+    return [f"{f['cod']} - {f['cidade']} ({f['uf']})" for f in FILIAIS_DATA]
+
+def ler_regionais() -> list:
+    return sorted(set(f["regional"] for f in FILIAIS_DATA))
+
+def filiais_por_regional(regional: str) -> list:
+    return [f"{f['cod']} - {f['cidade']} ({f['uf']})" for f in FILIAIS_DATA if f["regional"] == regional]
+
+def regional_da_filial(filial_str: str) -> str:
+    """Retorna a regional de uma string de filial '1 - PORTO ALEGRE (RS)'."""
+    try:
+        cod = int(filial_str.split(" - ")[0].strip())
+        for f in FILIAIS_DATA:
+            if f["cod"] == cod: return f["regional"]
+    except: pass
+    return ""
 
 def ler_frentes() -> list:
     return ["Consumo","Digital","Financeiro","Indústria","Logística","Produtividade","Tecnologia"]
@@ -522,8 +601,19 @@ def ler_oportunidades() -> pd.DataFrame:
     lista = [{**doc.to_dict(), "ID": doc.id} for doc in docs]
     if not lista: return pd.DataFrame()
     df = pd.DataFrame(lista)
-    if "Total Estimado 2026" not in df.columns: df["Total Estimado 2026"] = 0.0
     if "Submetido Controladoria" not in df.columns: df["Submetido Controladoria"] = False
+
+    # garante todos os meses absolutos como colunas numéricas
+    meses_abs = gerar_colunas_meses_absolutos()
+    for m in meses_abs:
+        if m not in df.columns: df[m] = 0.0
+        else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
+
+    # Total Estimado 2026 é SEMPRE calculado pela soma dos meses absolutos de 2026
+    # (nunca é um valor fixo gravado — evita dessincronia quando a ideia é editada)
+    meses_2026 = [f"{m}_2026" for m in NOMES_MESES]
+    df["Total Estimado 2026"] = sum(df[m] for m in meses_2026 if m in df.columns)
+
     return df.fillna("")
 
 def cadastrar_oportunidade(dados, usuario):
@@ -549,12 +639,15 @@ def cadastrar_oportunidade(dados, usuario):
         "Data Realizada N3": "",
         "Data Prevista N4": dados.get("data_prev_n4",""),
         "Data Realizada N4": "",
-        "Total Estimado 2026": float(dados.get("ganho_2026",0)),
         "Submetido Controladoria": False,
     }
-    # inicializa todos os meses absolutos com zero
+    # inicializa todos os meses absolutos com zero — Total 2026 é calculado, não gravado
     for m in gerar_colunas_meses_absolutos():
         nova[m] = 0.0
+    # se veio um valor inicial de ganho 2026 sem detalhamento mensal, coloca no primeiro mês de 2026
+    ganho_inicial = float(dados.get("ganho_2026", 0) or 0)
+    if ganho_inicial > 0:
+        nova["jan_2026"] = ganho_inicial
     doc_ref = db_fire.collection("oportunidades").add(nova)
     id_gerado = doc_ref[1].id
     registrar_log(usuario, "CADASTRO", f"Nova oportunidade: {nova['Título']}", id_gerado)
@@ -589,52 +682,41 @@ def adicionar_comentario(id_, texto, usuario):
 
 def editar_campos_oportunidade(id_, campos, usuario):
     """
-    Salva campos editados. Se vier Data Prevista N4 (mm/aaaa) com valores absolutos,
-    salva direto. Se a ideia ainda tiver M1-M12 legados e não tiver absolutos,
-    converte agora usando a Data N4.
+    Salva campos editados. REGRA CRÍTICA: se a edição envolve meses absolutos,
+    TODOS os meses absolutos antigos são zerados primeiro, e só os novos meses
+    enviados em `campos` ficam com valor. Isso evita que valores de uma edição
+    anterior fiquem "fantasmas" somados aos novos.
+    Total Estimado 2026 NÃO é gravado — é sempre calculado em ler_oportunidades().
     """
     meses = gerar_colunas_meses_absolutos()
+    tem_edicao_de_meses = any(m in campos for m in meses)
 
-    # verifica se há valores absolutos nos campos enviados
-    tem_abs_novos = any(campos.get(m, 0) for m in meses)
+    if tem_edicao_de_meses:
+        # zera TODOS os meses absolutos antes de aplicar os novos valores
+        for m in meses:
+            if m not in campos:
+                campos[m] = 0.0
+        # converte M1-M12 legados se existirem no banco e nenhum absoluto foi passado com valor
+        valores_novos_nao_zero = any(float(campos.get(m, 0) or 0) != 0 for m in meses)
+        if not valores_novos_nao_zero:
+            data_n4 = campos.get("Data Prevista N4", "")
+            if not data_n4:
+                doc = db_fire.collection("oportunidades").document(id_).get()
+                data_n4 = doc.to_dict().get("Data Prevista N4", "") if doc.exists else ""
+            if data_n4:
+                doc = db_fire.collection("oportunidades").document(id_).get()
+                d = doc.to_dict() if doc.exists else {}
+                for i in range(1, 13):
+                    v = float(d.get(f"M{i}", 0) or 0)
+                    if v != 0:
+                        chave = mes_ano_para_chave(datam(data_n4, i - 1))
+                        if chave and chave in set(meses):
+                            campos[chave] = v
 
-    if not tem_abs_novos:
-        # ideia antiga com M1-M12: tenta converter usando Data N4
-        data_n4 = campos.get("Data Prevista N4","")
-        if not data_n4:
-            # busca do banco
-            doc = db_fire.collection("oportunidades").document(id_).get()
-            data_n4 = doc.to_dict().get("Data Prevista N4","") if doc.exists else ""
-
-        if data_n4:
-            doc = db_fire.collection("oportunidades").document(id_).get()
-            d = doc.to_dict() if doc.exists else {}
-            for i in range(1,13):
-                v = float(d.get(f"M{i}", 0) or 0)
-                if v != 0:
-                    chave = mes_ano_para_chave(datam(data_n4, i-1))
-                    if chave and chave in set(meses):
-                        campos[chave] = v
-
-    # recalcula Total Estimado 2026 pelos meses absolutos de 2026
-    total_2026 = sum(
-        float(campos.get(f"{m}_2026", 0) or 0)
-        for m in NOMES_MESES
-    )
-    # também considera o que já estava no banco para os meses não editados
-    if total_2026 == 0:
-        doc = db_fire.collection("oportunidades").document(id_).get()
-        d = doc.to_dict() if doc.exists else {}
-        total_2026 = sum(float(d.get(f"{m}_2026",0) or 0) for m in NOMES_MESES)
-        # adiciona o que veio nos campos
-        total_2026 += sum(float(campos.get(f"{m}_2026",0) or 0) for m in NOMES_MESES)
-
-    if total_2026 > 0:
-        campos["Total Estimado 2026"] = total_2026
-
-    # remove M1-M12 legados dos campos (não salva mais)
-    for i in range(1,13):
+    # remove qualquer M1-M12 legado e Total Estimado 2026 fixo dos campos (não gravamos mais)
+    for i in range(1, 13):
         campos.pop(f"M{i}", None)
+    campos.pop("Total Estimado 2026", None)
 
     db_fire.collection("oportunidades").document(id_).update(campos)
     registrar_log(usuario, "EDIÇÃO DE CAMPOS", f"Campos: {', '.join(list(campos.keys())[:5])}", id_)
@@ -725,6 +807,10 @@ def importar_base_excel(df, u):
 
         conta_cont = str(row.get("Desc. Conta Contábil","")).strip()
         conta_orc  = str(row.get("Conta Orçamento","")).strip()
+
+        # verifica se a conta é reconhecida no plano de contas oficial
+        conta_reconhecida = norm(conta_cont) in lookup_cont or norm(conta_orc) in lookup_orc
+
         frente_raw = (lookup_cont.get(norm(conta_cont),"") or
                       lookup_orc.get(norm(conta_orc),"") or
                       str(row.get("Frente de Negócio","")).strip())
@@ -749,24 +835,18 @@ def importar_base_excel(df, u):
                     data_n4 = f"{mes_idx:02d}/{partes[1]}"
                     break
 
-        # total = soma dos meses absolutos de 2026
-        total_2026 = sum(float(vals_abs.get(f"{m}_2026", 0)) for m in NOMES_MESES)
-        try: total_raw = float(str(row.get("Total Estimado 2026","0")).replace(",",".") or "0")
-        except: total_raw = 0.0
-        total = total_2026 if total_2026 > 0 else total_raw
-
         nova = {
             "ID": id_unico, "Título": titulo, "Descrição": descricao,
             "Grupo Contábil": str(row.get("Grupo Contábil (ADM/COM/IND)","")).strip(),
             "Dono da Oportunidade": str(row.get("Dono da Oportunidade","")).strip(),
             "CC Dono": str(row.get("Centro de Custo do Dono da Oportunidade","")).strip(),
             "Conta Orçamento": conta_orc, "Conta Contábil": conta_cont,
+            "Conta Reconhecida": conta_reconhecida,
             "Frente de Negócio": frente,
             "Filial": str(row.get("Filial","")).strip(),
             "Nível": str(row.get("Status","N1 - Ideia")).strip() or "N1 - Ideia",
             "Craque": u.get("nome","Importação"),
             "Area Craque": str(row.get("Area Craque","")).strip(),
-            "Total Estimado 2026": total,
             "Data Prevista N3": str(row.get("Data Prevista N3","")).strip(),
             "Data Prevista N4": data_n4,
             "Data Cadastro (N1)": datetime.now().strftime("%d/%m/%Y"),
@@ -774,7 +854,7 @@ def importar_base_excel(df, u):
             "Data Realizada N2":"","Data Realizada N3":"","Data Realizada N4":"",
             "Submetido Controladoria": False, "Comentário da Semana": "",
         }
-        # salva meses absolutos — sem M1-M12
+        # salva meses absolutos — Total Estimado 2026 é calculado em ler_oportunidades()
         nova.update(vals_abs)
         db_fire.collection("oportunidades").document(id_unico).set(nova)
         count += 1
