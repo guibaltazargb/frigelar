@@ -295,31 +295,34 @@ def pagina_cadastro():
             conta_orc_sel = st.selectbox("Conta Orçamento *",[""] + contas_orc)
         with cg3:
             filtradas = df_pc[df_pc["ContaOrc"]==conta_orc_sel] if conta_orc_sel else pd.DataFrame()
-            opcoes_cont = [f"{r['Código']} - {r['ContaCont']}" for _,r in filtradas.iterrows()]
+            opcoes_cont = sorted(filtradas["ContaCont"].unique().tolist())
             conta_cont_sel = st.selectbox("Conta Contábil *",[""] + opcoes_cont)
         frente_det = ""
-        if conta_cont_sel:
-            cod = conta_cont_sel.split(" - ")[0]
-            try: frente_det = df_pc[df_pc["Código"]==cod].iloc[0]["Frente"]
-            except: pass
-            st.info(f"Frente detectada automaticamente: **{frente_det}**")
+        if conta_orc_sel and conta_cont_sel:
+            match = df_pc[(df_pc["ContaOrc"]==conta_orc_sel) & (df_pc["ContaCont"]==conta_cont_sel)]
+            if not match.empty:
+                frente_det = match.iloc[0]["Frente"]
+                st.info(f"Frente detectada automaticamente: **{frente_det}**")
 
         st.markdown("<br>##### 3. Valor e Datas Iniciais",unsafe_allow_html=True)
         cv,cd1,cd2 = st.columns(3)
+        opcoes_mes_cad = [""] + db.gerar_opcoes_mes_ano()
         with cv: ganho = st.number_input("Ganho Estimado 2026 (R$) *",min_value=0.0,step=100.0)
-        with cd1: dpn3 = st.text_input("Data Prevista N3 (dd/mm/aaaa)")
-        with cd2: dpn4 = st.text_input("Data Prevista N4 (dd/mm/aaaa)")
+        with cd1: dpn3 = st.selectbox("Data Prevista N3 (mm/aaaa)", opcoes_mes_cad)
+        with cd2: dpn4 = st.selectbox("Data Prevista N4 (mm/aaaa)", opcoes_mes_cad)
 
         if st.button("Salvar Registro (N1)",use_container_width=True,type="primary"):
             if not (titulo.strip() and descricao.strip() and dono.strip() and cc_dono and conta_orc_sel and conta_cont_sel and filial_sel and grupo_contabil):
                 st.error("Preencha todos os campos obrigatórios (*).")
             elif db.titulo_ja_existe(titulo):
                 st.error(f"Já existe uma oportunidade com o título '{titulo}'. Escolha outro.")
+            elif dpn3 and dpn4 and dpn4 < dpn3:
+                st.error("❌ A Data Prevista N4 não pode ser anterior à Data Prevista N3.")
             else:
                 db.cadastrar_oportunidade({
                     "titulo":titulo,"descricao":descricao,"grupo_contabil":grupo_contabil,
                     "dono":dono,"cc_dono":cc_dono,"conta_orc":conta_orc_sel,
-                    "conta_cont":conta_cont_sel.split(" - ",1)[-1],
+                    "conta_cont":conta_cont_sel,
                     "filial":filial_sel,"frente_automatica":frente_det,
                     "ganho_2026":ganho,"data_prev_n3":dpn3,"data_prev_n4":dpn4,
                     "area_craque": u.get("area_craque","")
@@ -336,10 +339,13 @@ def pagina_sco():
 
     # filtro por perfil
     if u["perfil"] == "craque":
-        # craque vê todas as ideias que cadastrou (por nome) + ideias da sua frente
-        mask_craque = df["Craque"].astype(str).str.lower() == u["nome"].lower()
-        mask_frente = df["Frente de Negócio"].astype(str).str.lower() == u.get("frente","").lower() if u.get("frente") else pd.Series(False, index=df.index)
-        df = df[mask_craque | mask_frente]
+        # craque vê ideias cuja "Area Craque" bate com a área dele
+        area_craque_user = str(u.get("area_craque","")).strip().lower()
+        if area_craque_user:
+            mask_area = df["Area Craque"].astype(str).str.strip().str.lower() == area_craque_user
+        else:
+            mask_area = pd.Series(False, index=df.index)
+        df = df[mask_area]
     elif u["perfil"] == "lider":
         df = df[df["Frente de Negócio"].str.lower() == u["frente"].lower()]
     # adm e diretoria veem tudo
@@ -354,13 +360,17 @@ def pagina_sco():
     with col_f[0]: f_status = st.multiselect("Status", opt("Nível"), default=[], key="f_status", placeholder="Todos")
     with col_f[1]: f_frente = st.multiselect("Frente", opt("Frente de Negócio"), default=[], key="f_frente", placeholder="Todas")
     with col_f[2]: f_gc     = st.multiselect("Grupo Contábil", ["ADM","COM","IND"], default=[], key="f_gc", placeholder="Todos")
-    with col_f[3]: f_filial = st.multiselect("Filial", opt("Filial"), default=[], key="f_filial", placeholder="Todas")
+    with col_f[3]: f_regional = st.multiselect("Regional", db.ler_regionais(), default=[], key="f_regional", placeholder="Todas")
 
     col_f2 = st.columns(4)
-    with col_f2[0]: f_dono   = st.multiselect("Dono", opt("Dono da Oportunidade"), default=[], key="f_dono", placeholder="Todos")
-    with col_f2[1]: f_cc     = st.multiselect("CC Dono", opt("CC Dono"), default=[], key="f_cc", placeholder="Todos")
-    with col_f2[2]: f_craque = st.multiselect("Craque", opt("Craque"), default=[], key="f_craque", placeholder="Todos")
-    with col_f2[3]: f_conta  = st.multiselect("Conta Orç.", opt("Conta Orçamento"), default=[], key="f_conta", placeholder="Todas")
+    with col_f2[0]: f_filial = st.multiselect("Filial", opt("Filial"), default=[], key="f_filial", placeholder="Todas")
+    with col_f2[1]: f_dono   = st.multiselect("Dono", opt("Dono da Oportunidade"), default=[], key="f_dono", placeholder="Todos")
+    with col_f2[2]: f_cc     = st.multiselect("CC Dono", opt("CC Dono"), default=[], key="f_cc", placeholder="Todos")
+    with col_f2[3]: f_craque = st.multiselect("Craque", opt("Craque"), default=[], key="f_craque", placeholder="Todos")
+
+    col_f3 = st.columns(2)
+    with col_f3[0]: f_conta  = st.multiselect("Conta Orç.", opt("Conta Orçamento"), default=[], key="f_conta", placeholder="Todas")
+    with col_f3[1]: pass  # espaço para futuros filtros
 
     col_txt = st.columns(3)
     with col_txt[0]: txt_tit  = st.text_input("🔍 Título", key="txt_tit")
@@ -368,19 +378,25 @@ def pagina_sco():
     with col_txt[2]: txt_cc   = st.text_input("🔍 Conta Contábil", key="txt_cc")
 
     if st.button("🔄 Limpar Filtros", key="limpar"):
-        for k in ["f_status","f_frente","f_gc","f_filial","f_dono","f_cc","f_craque","f_conta","txt_tit","txt_desc","txt_cc"]:
+        for k in ["f_status","f_frente","f_gc","f_regional","f_filial","f_dono","f_cc","f_craque","f_conta","txt_tit","txt_desc","txt_cc"]:
             if k in st.session_state: del st.session_state[k]
         st.rerun()
 
     df_f = df.copy()
-    if f_status:  df_f = df_f[df_f["Nível"].isin(f_status)]
-    if f_frente:  df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
+    if f_status:   df_f = df_f[df_f["Nível"].isin(f_status)]
+    if f_frente:   df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
     if f_gc and "Grupo Contábil" in df_f.columns: df_f = df_f[df_f["Grupo Contábil"].isin(f_gc)]
-    if f_filial:  df_f = df_f[df_f["Filial"].isin(f_filial)]
-    if f_dono:    df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
-    if f_cc:      df_f = df_f[df_f["CC Dono"].isin(f_cc)]
-    if f_craque:  df_f = df_f[df_f["Craque"].isin(f_craque)]
-    if f_conta:   df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
+    if f_regional:
+        # filtra filiais que pertencem às regionais selecionadas
+        filiais_da_regional = set()
+        for reg in f_regional:
+            filiais_da_regional.update(db.filiais_por_regional(reg))
+        df_f = df_f[df_f["Filial"].isin(filiais_da_regional)]
+    if f_filial:   df_f = df_f[df_f["Filial"].isin(f_filial)]
+    if f_dono:     df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
+    if f_cc:       df_f = df_f[df_f["CC Dono"].isin(f_cc)]
+    if f_craque:   df_f = df_f[df_f["Craque"].isin(f_craque)]
+    if f_conta:    df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
     if txt_tit.strip():  df_f = df_f[df_f["Título"].astype(str).str.contains(txt_tit,case=False,na=False)]
     if txt_desc.strip(): df_f = df_f[df_f.get("Descrição",pd.Series(dtype=str)).astype(str).str.contains(txt_desc,case=False,na=False)]
     if txt_cc.strip():   df_f = df_f[df_f["Conta Contábil"].astype(str).str.contains(txt_cc,case=False,na=False)]
@@ -389,11 +405,12 @@ def pagina_sco():
     df_f = df_f.reset_index(drop=True)
     df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
 
-    # subtotal considerando filtros
-    total_filtrado = pd.to_numeric(df_f["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
+    # subtotal considerando filtros — exclui N0 Cancelada
+    df_subtotal = df_f[df_f["Nível"] != "N0 - Cancelada"]
+    total_filtrado = pd.to_numeric(df_subtotal["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
     col_info, col_total = st.columns([3,1])
     with col_info: st.markdown(f"**{len(df_f)} oportunidade(s) filtrada(s)**")
-    with col_total: st.markdown(f"**Subtotal 2026: {brl_k(total_filtrado)}**")
+    with col_total: st.markdown(f"**Subtotal 2026: {brl_mil(total_filtrado)}** *(exclui N0)*")
 
     df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
     atrasadas = df_f["_atrasada"].values
@@ -458,6 +475,20 @@ def pagina_sco():
                     if len(partes) == 2 and len(partes[0]) == 2: return s[:7]
                     return ""
 
+                conta_orc_atual = str(row.get("Conta Orçamento","")).strip()
+                conta_cont_atual = str(row.get("Conta Contábil","")).strip()
+                conta_reconhecida = bool(row.get("Conta Reconhecida", True))
+                if not conta_orc_atual and not conta_cont_atual:
+                    conta_reconhecida = True  # ideia nova, sem conta ainda — não sinaliza
+
+                # verifica se a conta atual existe no plano de contas oficial
+                contas_orc_oficiais = sorted(df_pc["ContaOrc"].unique().tolist())
+                if conta_orc_atual not in contas_orc_oficiais:
+                    conta_reconhecida = False
+
+                if not conta_reconhecida:
+                    st.warning(f"⚠️ A conta importada ('{conta_orc_atual}' / '{conta_cont_atual}') não corresponde exatamente ao plano de contas oficial. Os valores atuais foram preservados — confira e corrija abaixo se necessário.")
+
                 with st.form(f"fe_{id_sel}"):
                     nova_desc = st.text_area("Descrição", value=str(row.get("Descrição","")), max_chars=600)
                     cg1, cg2 = st.columns(2)
@@ -467,19 +498,32 @@ def pagina_sco():
 
                     ce1,ce2 = st.columns(2)
                     with ce1:
-                        contas_orc = sorted(df_pc["ContaOrc"].unique().tolist())
-                        idx_orc = contas_orc.index(row.get("Conta Orçamento","")) if row.get("Conta Orçamento","") in contas_orc else 0
-                        nova_orc = st.selectbox("Conta Orçamento", contas_orc, index=idx_orc)
+                        # mantém a conta orçamento atual como opção mesmo se não estiver no plano oficial
+                        opcoes_orc = contas_orc_oficiais.copy()
+                        if conta_orc_atual and conta_orc_atual not in opcoes_orc:
+                            opcoes_orc = [conta_orc_atual] + opcoes_orc
+                        idx_orc = opcoes_orc.index(conta_orc_atual) if conta_orc_atual in opcoes_orc else 0
+                        nova_orc = st.selectbox("Conta Orçamento", opcoes_orc, index=idx_orc)
                     with ce2:
                         filt = df_pc[df_pc["ContaOrc"]==nova_orc]
-                        opts = [f"{r['Código']} - {r['ContaCont']}" for _,r in filt.iterrows()]
-                        nova_cont_sel = st.selectbox("Conta Contábil", opts if opts else [""], index=0)
+                        # exibe só o texto da conta contábil, sem código
+                        opts_labels = sorted(filt["ContaCont"].unique().tolist())
+                        # mantém a conta contábil atual como opção mesmo se não bater
+                        if conta_cont_atual and conta_cont_atual not in opts_labels:
+                            opts_labels = [conta_cont_atual] + opts_labels
+                        if not opts_labels: opts_labels = [conta_cont_atual] if conta_cont_atual else [""]
+                        idx_cont = opts_labels.index(conta_cont_atual) if conta_cont_atual in opts_labels else 0
+                        nova_cont_label = st.selectbox("Conta Contábil", opts_labels, index=idx_cont)
 
-                    nova_frente = ""
-                    if nova_cont_sel and " - " in nova_cont_sel:
-                        try: nova_frente = df_pc[df_pc["Código"]==nova_cont_sel.split(" - ")[0]].iloc[0]["Frente"]
-                        except: pass
-                    if nova_frente: st.info(f"Frente detectada: **{nova_frente}**")
+                    nova_frente = str(row.get("Frente de Negócio","")).strip()
+                    frente_detectada = ""
+                    match_conta = df_pc[(df_pc["ContaOrc"]==nova_orc) & (df_pc["ContaCont"]==nova_cont_label)]
+                    if not match_conta.empty:
+                        frente_detectada = match_conta.iloc[0]["Frente"]
+                        if frente_detectada and frente_detectada != nova_frente:
+                            st.info(f"A conta selecionada pertence à frente **{frente_detectada}** (atual: {nova_frente}). Ao salvar, a ideia será transferida.")
+                        elif frente_detectada:
+                            st.caption(f"Frente: **{frente_detectada}**")
 
                     cd1e,cd2e = st.columns(2)
                     n3_norm = normaliza_mes_ano(str(row.get("Data Prevista N3","")))
@@ -509,18 +553,29 @@ def pagina_sco():
                     else:
                         st.info("Selecione a Data Prevista N4 para habilitar os campos de valor mensal.")
 
-                    if st.form_submit_button("✏️ Salvar Edições", type="primary"):
-                        campos = {
-                            "Descrição": nova_desc, "Grupo Contábil": novo_gc,
-                            "Area Craque": nova_area_craque,
-                            "Conta Orçamento": nova_orc,
-                            "Conta Contábil": nova_cont_sel.split(" - ",1)[-1] if nova_cont_sel else "",
-                            "Frente de Negócio": nova_frente,
-                            "Data Prevista N3": nd3, "Data Prevista N4": nd4,
-                        }
-                        campos.update(vals_abs)
-                        db.editar_campos_oportunidade(id_sel, campos, u)
-                        st.success("Campos atualizados!"); st.rerun()
+                    submit = st.form_submit_button("✏️ Salvar Edições", type="primary")
+                    if submit:
+                        # valida N4 >= N3
+                        if nd3 and nd4 and nd4 < nd3:
+                            st.error("❌ A Data Prevista N4 não pode ser anterior à Data Prevista N3. Corrija antes de salvar.")
+                        else:
+                            campos = {
+                                "Descrição": nova_desc, "Grupo Contábil": novo_gc,
+                                "Area Craque": nova_area_craque,
+                                "Conta Orçamento": nova_orc,
+                                "Conta Contábil": nova_cont_label,
+                                "Conta Reconhecida": nova_orc in contas_orc_oficiais and not match_conta.empty,
+                                "Data Prevista N3": nd3, "Data Prevista N4": nd4,
+                            }
+                            if frente_detectada:
+                                campos["Frente de Negócio"] = frente_detectada
+                            campos.update(vals_abs)
+                            db.editar_campos_oportunidade(id_sel, campos, u)
+                            if frente_detectada and frente_detectada != nova_frente:
+                                st.success(f"Ideia transferida para a frente de {frente_detectada}!")
+                            else:
+                                st.success("Campos atualizados!")
+                            st.rerun()
 
 
             with tab_n:
@@ -537,9 +592,10 @@ def pagina_sco():
                 elif "N2" in nivel_atual:
                     dpn3 = str(row.get("Data Prevista N3","")).strip()
                     dpn4 = str(row.get("Data Prevista N4","")).strip()
-                    vals_ok = any(float(row.get(f"M{i}",0) or 0) > 0 for i in range(1,13))
+                    meses_abs_check = db.gerar_colunas_meses_absolutos()
+                    vals_ok = any(float(row.get(m,0) or 0) > 0 for m in meses_abs_check)
                     if not dpn3 or not dpn4 or not vals_ok:
-                        st.warning("⚠️ Para avançar para N3 preencha: Data Prevista N3, Data Prevista N4 e ao menos um valor mensal (M1–M12) na aba ✏️ Editar Campos.")
+                        st.warning("⚠️ Para avançar para N3 preencha: Data Prevista N3, Data Prevista N4 e ao menos um valor mensal de economia na aba ✏️ Editar Campos.")
                     else:
                         if st.button("▶ Iniciar Execução (N2→N3)", key=f"n3_{id_sel}", use_container_width=True, type="primary"):
                             db.movimentar_nivel(id_sel,"N3 - Execução",u); st.success("Movido para N3!"); st.rerun()
@@ -670,9 +726,12 @@ def pagina_painel_integrado():
     potencial_2026 = soma_2026(df_ativas)
     total_realizado = soma_2026(df_p[df_p["Nível"]=="N4 - Implementado"])
 
-    tab_dash, tab_matriz, tab_evo, tab_ger, tab_excel = st.tabs([
-        "📊 Dashboard", "📋 Matriz & Comparativo", "📈 Evolução", "📑 Rel. Gerencial", "📥 Base Excel"
-    ])
+    if u["perfil"] == "lider":
+        tab_dash, = st.tabs(["📊 Dashboard"])
+    else:
+        tab_dash, tab_matriz, tab_evo, tab_ger, tab_excel = st.tabs([
+            "📊 Dashboard", "📋 Matriz & Comparativo", "📈 Evolução", "📑 Rel. Gerencial", "📥 Base Excel"
+        ])
 
     with tab_dash:
         c1,c2,c3,c4,c5 = st.columns(5)
@@ -698,141 +757,142 @@ def pagina_painel_integrado():
             fv = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
             st.bar_chart(fv, color="#16a34a")
 
-    with tab_matriz:
-        niveis_ativos = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado"]
-        st.markdown("#### Posição Atual — Frentes × Níveis")
-        linhas = []
-        for frente in frentes:
-            linha = {"Frente": frente}
-            total_fr = 0.0; total_qtd = 0
+    if u["perfil"] != "lider":
+        with tab_matriz:
+            niveis_ativos = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado"]
+            st.markdown("#### Posição Atual — Frentes × Níveis")
+            linhas = []
+            for frente in frentes:
+                linha = {"Frente": frente}
+                total_fr = 0.0; total_qtd = 0
+                for nivel in niveis_ativos:
+                    sub = df_p[(df_p["Frente de Negócio"]==frente) & (df_p["Nível"]==nivel)]
+                    qtd = len(sub); val = sub["Total Estimado 2026"].sum()
+                    nc = nivel.split(" - ")[0]
+                    linha[f"{nc} Qtd"] = qtd
+                    linha[f"{nc} R$"] = brl_k(val)
+                    linha[f"_{nc}_val"] = val
+                    total_fr += val; total_qtd += qtd
+                linha["Total Qtd"] = total_qtd
+                linha["Total R$"] = brl_k(total_fr)
+                linhas.append(linha)
+            total_row = {"Frente": "TOTAL"}
             for nivel in niveis_ativos:
-                sub = df_p[(df_p["Frente de Negócio"]==frente) & (df_p["Nível"]==nivel)]
-                qtd = len(sub); val = sub["Total Estimado 2026"].sum()
                 nc = nivel.split(" - ")[0]
-                linha[f"{nc} Qtd"] = qtd
-                linha[f"{nc} R$"] = brl_k(val)
-                linha[f"_{nc}_val"] = val
-                total_fr += val; total_qtd += qtd
-            linha["Total Qtd"] = total_qtd
-            linha["Total R$"] = brl_k(total_fr)
-            linhas.append(linha)
-        total_row = {"Frente": "TOTAL"}
-        for nivel in niveis_ativos:
-            nc = nivel.split(" - ")[0]
-            sub = df_p[df_p["Nível"]==nivel]
-            total_row[f"{nc} Qtd"] = len(sub)
-            total_row[f"{nc} R$"] = brl_k(sub["Total Estimado 2026"].sum())
-            total_row[f"_{nc}_val"] = sub["Total Estimado 2026"].sum()
-        total_row["Total Qtd"] = len(df_p[df_p["Nível"].isin(niveis_ativos)])
-        total_row["Total R$"] = brl_k(df_p[df_p["Nível"].isin(niveis_ativos)]["Total Estimado 2026"].sum())
-        linhas.append(total_row)
-        cols_ex = ["Frente"] + [f"{n.split(' - ')[0]} Qtd" for n in niveis_ativos] +                   [f"{n.split(' - ')[0]} R$" for n in niveis_ativos] + ["Total Qtd","Total R$"]
-        df_matriz = pd.DataFrame(linhas)[cols_ex]
-        st.dataframe(df_matriz, use_container_width=True, hide_index=True)
+                sub = df_p[df_p["Nível"]==nivel]
+                total_row[f"{nc} Qtd"] = len(sub)
+                total_row[f"{nc} R$"] = brl_k(sub["Total Estimado 2026"].sum())
+                total_row[f"_{nc}_val"] = sub["Total Estimado 2026"].sum()
+            total_row["Total Qtd"] = len(df_p[df_p["Nível"].isin(niveis_ativos)])
+            total_row["Total R$"] = brl_k(df_p[df_p["Nível"].isin(niveis_ativos)]["Total Estimado 2026"].sum())
+            linhas.append(total_row)
+            cols_ex = ["Frente"] + [f"{n.split(' - ')[0]} Qtd" for n in niveis_ativos] +                   [f"{n.split(' - ')[0]} R$" for n in niveis_ativos] + ["Total Qtd","Total R$"]
+            df_matriz = pd.DataFrame(linhas)[cols_ex]
+            st.dataframe(df_matriz, use_container_width=True, hide_index=True)
 
-        st.markdown("---")
-        col_snap1, col_snap2 = st.columns([2,1])
-        with col_snap2:
-            if u["perfil"] == "adm":
-                if st.button("📸 Registrar posição desta semana", type="primary", use_container_width=True):
-                    semana_id = db.salvar_snapshot(df_p, u)
-                    st.success(f"Snapshot registrado: {semana_id}"); st.rerun()
+            st.markdown("---")
+            col_snap1, col_snap2 = st.columns([2,1])
+            with col_snap2:
+                if u["perfil"] == "adm":
+                    if st.button("📸 Registrar posição desta semana", type="primary", use_container_width=True):
+                        semana_id = db.salvar_snapshot(df_p, u)
+                        st.success(f"Snapshot registrado: {semana_id}"); st.rerun()
 
-        snaps = db.ler_snapshots()
-        if len(snaps) >= 2:
-            st.markdown("#### Comparativo com semana anterior")
-            snap_atual = snaps[0]; snap_ant = snaps[1]
-            st.caption(f"Comparando **{snap_atual['data']}** (atual) vs **{snap_ant['data']}** (anterior)")
+            snaps = db.ler_snapshots()
+            if len(snaps) >= 2:
+                st.markdown("#### Comparativo com semana anterior")
+                snap_atual = snaps[0]; snap_ant = snaps[1]
+                st.caption(f"Comparando **{snap_atual['data']}** (atual) vs **{snap_ant['data']}** (anterior)")
 
-            def indexar(snap):
-                idx = {}
-                for r in snap.get("dados",[]):
-                    n = r["nivel"]; f = r["frente"]
-                    if n not in idx: idx[n] = {}
-                    idx[n][f] = {"qtd": r["qtd"], "valor": r["valor"]}
-                return idx
+                def indexar(snap):
+                    idx = {}
+                    for r in snap.get("dados",[]):
+                        n = r["nivel"]; f = r["frente"]
+                        if n not in idx: idx[n] = {}
+                        idx[n][f] = {"qtd": r["qtd"], "valor": r["valor"]}
+                    return idx
 
-            atual_idx = indexar(snap_atual)
-            ant_idx   = indexar(snap_ant)
-            textos = []
-            for nivel in niveis_ativos:
-                frentes_com_mudanca = []
-                delta_total_val = 0.0; delta_total_qtd = 0
-                for frente in frentes:
-                    v_at = atual_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
-                    v_an = ant_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
-                    q_at = atual_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
-                    q_an = ant_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
-                    dv = v_at - v_an; dq = q_at - q_an
-                    if abs(dv) > 0.01 or dq != 0:
-                        sv = "+" if dv >= 0 else ""
-                        sq = "+" if dq >= 0 else ""
-                        det = f"{frente}: {sv}{brl_k(dv)}"
-                        if dq != 0: det += f" ({sq}{dq} ideia{'s' if abs(dq)!=1 else ''})"
-                        frentes_com_mudanca.append(det)
-                        delta_total_val += dv; delta_total_qtd += dq
-                if frentes_com_mudanca:
-                    sv = "+" if delta_total_val >= 0 else ""
-                    sq = "+" if delta_total_qtd >= 0 else ""
-                    resumo = f"**{nivel}:** potencial {sv}{brl_k(delta_total_val)}"
-                    if delta_total_qtd != 0:
-                        resumo += f", {sq}{delta_total_qtd} ideia{'s' if abs(delta_total_qtd)!=1 else ''}"
-                    resumo += f". Por frente — " + "; ".join(frentes_com_mudanca) + "."
-                    textos.append(resumo)
-            if textos:
-                for t in textos: st.markdown(f"- {t}")
+                atual_idx = indexar(snap_atual)
+                ant_idx   = indexar(snap_ant)
+                textos = []
+                for nivel in niveis_ativos:
+                    frentes_com_mudanca = []
+                    delta_total_val = 0.0; delta_total_qtd = 0
+                    for frente in frentes:
+                        v_at = atual_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
+                        v_an = ant_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
+                        q_at = atual_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
+                        q_an = ant_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
+                        dv = v_at - v_an; dq = q_at - q_an
+                        if abs(dv) > 0.01 or dq != 0:
+                            sv = "+" if dv >= 0 else ""
+                            sq = "+" if dq >= 0 else ""
+                            det = f"{frente}: {sv}{brl_k(dv)}"
+                            if dq != 0: det += f" ({sq}{dq} ideia{'s' if abs(dq)!=1 else ''})"
+                            frentes_com_mudanca.append(det)
+                            delta_total_val += dv; delta_total_qtd += dq
+                    if frentes_com_mudanca:
+                        sv = "+" if delta_total_val >= 0 else ""
+                        sq = "+" if delta_total_qtd >= 0 else ""
+                        resumo = f"**{nivel}:** potencial {sv}{brl_k(delta_total_val)}"
+                        if delta_total_qtd != 0:
+                            resumo += f", {sq}{delta_total_qtd} ideia{'s' if abs(delta_total_qtd)!=1 else ''}"
+                        resumo += f". Por frente — " + "; ".join(frentes_com_mudanca) + "."
+                        textos.append(resumo)
+                if textos:
+                    for t in textos: st.markdown(f"- {t}")
+                else:
+                    st.info("Nenhuma variação entre os dois últimos snapshots.")
+            elif len(snaps) == 1:
+                st.info(f"Snapshot de {snaps[0]['data']} registrado. Registre mais um na próxima semana para ver o comparativo.")
             else:
-                st.info("Nenhuma variação entre os dois últimos snapshots.")
-        elif len(snaps) == 1:
-            st.info(f"Snapshot de {snaps[0]['data']} registrado. Registre mais um na próxima semana para ver o comparativo.")
-        else:
-            st.info("Nenhum snapshot registrado ainda. Clique em '📸 Registrar posição desta semana' para começar.")
+                st.info("Nenhum snapshot registrado ainda. Clique em '📸 Registrar posição desta semana' para começar.")
 
-    with tab_evo:
-        df_ev = df_ativas.copy()
-        df_ev["Semana"] = df_ev["Data Cadastro (N1)"].apply(
-            lambda x: f"Sem.{x.split('/')[1]}/{x.split('/')[2]}" if pd.notna(x) and x and "/" in str(x) else "?")
-        evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
-        st.markdown("**Evolução por Semana de Cadastro**")
-        st.bar_chart(evo)
-    with tab_ger:
-        if u["perfil"]=="adm":
-            with st.expander("⚙️ Ajustar Metas Orçadas"):
-                with st.form("form_orc"):
-                    cols_orc = st.columns(len(frentes))
-                    vals_orc = {f: cols_orc[i].number_input(f, value=float(orc_data.get(f,0.0)), step=10000.0) for i,f in enumerate(frentes)}
-                    if st.form_submit_button("Salvar", type="primary"):
-                        db.salvar_orcamento(vals_orc); st.success("Atualizado!"); time.sleep(1); st.rerun()
+        with tab_evo:
+            df_ev = df_ativas.copy()
+            df_ev["Semana"] = df_ev["Data Cadastro (N1)"].apply(
+                lambda x: f"Sem.{x.split('/')[1]}/{x.split('/')[2]}" if pd.notna(x) and x and "/" in str(x) else "?")
+            evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
+            st.markdown("**Evolução por Semana de Cadastro**")
+            st.bar_chart(evo)
+        with tab_ger:
+            if u["perfil"]=="adm":
+                with st.expander("⚙️ Ajustar Metas Orçadas"):
+                    with st.form("form_orc"):
+                        cols_orc = st.columns(len(frentes))
+                        vals_orc = {f: cols_orc[i].number_input(f, value=float(orc_data.get(f,0.0)), step=10000.0) for i,f in enumerate(frentes)}
+                        if st.form_submit_button("Salvar", type="primary"):
+                            db.salvar_orcamento(vals_orc); st.success("Atualizado!"); time.sleep(1); st.rerun()
 
-        relatorio = []
-        for f in frentes:
-            df_f2 = df_p[df_p["Frente de Negócio"]==f]
-            n1 = soma_2026(df_f2[df_f2["Nível"]=="N1 - Ideia"])
-            n2 = soma_2026(df_f2[df_f2["Nível"]=="N2 - Planejamento"])
-            n3 = soma_2026(df_f2[df_f2["Nível"]=="N3 - Execução"])
-            n4 = soma_2026(df_f2[df_f2["Nível"]=="N4 - Implementado"])
-            total = n1+n2+n3+n4
-            orc = orc_data.get(f, 0.0)
-            relatorio.append({
-                "Frente": f,
-                "N1 - Ideia": brl_mil(n1),
-                "N2 - Planejamento": brl_mil(n2),
-                "N3 - Execução": brl_mil(n3),
-                "N4 - Implementado": brl_mil(n4),
-                "Total 2026": brl_mil(total),
-                "Orçado": brl_mil(orc),
-                "% Ating. (N4/Orç.)": f"{(n4/orc*100) if orc>0 else 0:.1f}%"
-            })
-        st.dataframe(pd.DataFrame(relatorio), use_container_width=True, hide_index=True)
+            relatorio = []
+            for f in frentes:
+                df_f2 = df_p[df_p["Frente de Negócio"]==f]
+                n1 = soma_2026(df_f2[df_f2["Nível"]=="N1 - Ideia"])
+                n2 = soma_2026(df_f2[df_f2["Nível"]=="N2 - Planejamento"])
+                n3 = soma_2026(df_f2[df_f2["Nível"]=="N3 - Execução"])
+                n4 = soma_2026(df_f2[df_f2["Nível"]=="N4 - Implementado"])
+                total = n1+n2+n3+n4
+                orc = orc_data.get(f, 0.0)
+                relatorio.append({
+                    "Frente": f,
+                    "N1 - Ideia": brl_mil(n1),
+                    "N2 - Planejamento": brl_mil(n2),
+                    "N3 - Execução": brl_mil(n3),
+                    "N4 - Implementado": brl_mil(n4),
+                    "Total 2026": brl_mil(total),
+                    "Orçado": brl_mil(orc),
+                    "% Ating. (N4/Orç.)": f"{(n4/orc*100) if orc>0 else 0:.1f}%"
+                })
+            st.dataframe(pd.DataFrame(relatorio), use_container_width=True, hide_index=True)
 
-    with tab_excel:
-        for i in range(1,13):
-            if f"M{i}" not in df_p.columns: df_p[f"M{i}"] = 0.0
-            else: df_p[f"M{i}"] = pd.to_numeric(df_p[f"M{i}"], errors="coerce").fillna(0.0)
-        excel_p = gerar_excel_sco(df_p)
-        st.download_button("📥 Download Excel", data=excel_p,
-            file_name=f"Base_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.ms-excel", type="primary")
+        with tab_excel:
+            for i in range(1,13):
+                if f"M{i}" not in df_p.columns: df_p[f"M{i}"] = 0.0
+                else: df_p[f"M{i}"] = pd.to_numeric(df_p[f"M{i}"], errors="coerce").fillna(0.0)
+            excel_p = gerar_excel_sco(df_p)
+            st.download_button("📥 Download Excel", data=excel_p,
+                file_name=f"Base_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.ms-excel", type="primary")
 
 
 # ── LOG ────────────────────────────────────────────────────────────────────────
