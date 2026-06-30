@@ -1,965 +1,1028 @@
-import pandas as pd
-from datetime import datetime
-import firebase_admin
-from firebase_admin import credentials, firestore
 import streamlit as st
+import pandas as pd
+from datetime import datetime, date
+import base64, time, os, io
+import dados as db
 
-if not firebase_admin._apps:
-    if "firebase" in st.secrets:
-        cred_dict = dict(st.secrets["firebase"])
-        cred = credentials.Certificate(cred_dict)
-    else:
-        cred = credentials.Certificate("firebase-key.json")
-    firebase_admin.initialize_app(cred)
+st.set_page_config(
+    page_title="Programa Essência",
+    page_icon="Logo_Essencia.png" if os.path.exists("Logo_Essencia.png") else "💡",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-db_fire = firestore.client()
-NIVEIS = ["N1 - Ideia", "N2 - Planejamento", "N3 - Execução", "N4 - Implementado", "N0 - Cancelada"]
-
-# ── INICIALIZAÇÃO ──────────────────────────────────────────────────────────────
-def inicializar_banco_se_vazio():
-    doc = db_fire.collection("usuarios").document("controladoria").get()
-    if not doc.exists:
-        cadastrar_usuario_manual("controladoria","Controladoria","adm","controladoria@frigelar.com.br","","","Financeiro","essencia2026")
-        cadastrar_usuario_manual("diretoria","Diretoria Executiva","diretoria","diretoria@frigelar.com.br","","","","essencia2026")
-
-inicializar_banco_se_vazio()
-
-# ── LOG ────────────────────────────────────────────────────────────────────────
-def registrar_log(usuario, tipo_acao, descricao, id_oportunidade=""):
-    db_fire.collection("logs").add({
-        "usuario": usuario.get("nome","?"),
-        "login": usuario.get("login","?"),
-        "tipo_acao": tipo_acao,
-        "descricao": descricao,
-        "id_oportunidade": id_oportunidade,
-        "data_hora": datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-    })
-
-def ler_logs() -> pd.DataFrame:
-    docs = db_fire.collection("logs").order_by("data_hora", direction=firestore.Query.DESCENDING).limit(500).stream()
-    lista = [doc.to_dict() for doc in docs]
-    if not lista: return pd.DataFrame()
-    return pd.DataFrame(lista)
-
-# ── PLANO DE CONTAS ────────────────────────────────────────────────────────────
-def ler_plano_contas() -> pd.DataFrame:
-    plano = [
-        {"Código":"3.1.5.06.002","ContaCont":"Agua","ContaOrc":"Água","Frente":"Consumo"},
-        {"Código":"3.1.9.05.002","ContaCont":"Agua","ContaOrc":"Água","Frente":"Consumo"},
-        {"Código":"3.1.9.05.003","ContaCont":"Alugueis","ContaOrc":"Alugueis","Frente":"Consumo"},
-        {"Código":"3.1.9.05.004","ContaCont":"(-) Pis/Cofins Sobre Alugueis","ContaOrc":"Alugueis","Frente":"Consumo"},
-        {"Código":"3.1.9.05.094","ContaCont":"Despesas Com Condominios","ContaOrc":"Alugueis","Frente":"Consumo"},
-        {"Código":"3.1.9.05.105","ContaCont":"Multa Em Decorrencia Por Rescisão De Contrato","ContaOrc":"Alugueis","Frente":"Consumo"},
-        {"Código":"3.1.9.05.114","ContaCont":"Carta Fianca","ContaOrc":"Alugueis","Frente":"Consumo"},
-        {"Código":"3.1.5.06.045","ContaCont":"Taxas E Emolumentos","ContaOrc":"Cartório","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.013","ContaCont":"Cartorios","ContaOrc":"Cartório","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.052","ContaCont":"Taxas E Emolumentos","ContaOrc":"Cartório","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.012","ContaCont":"Cartorios","ContaOrc":"Cartório","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.061","ContaCont":"Taxas E Emolumentos","ContaOrc":"Cartório","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.003","ContaCont":"Provisão Comissão Impulsiona","ContaOrc":"Comissão Impulsiona","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.004","ContaCont":"Comissão Impulsiona","ContaOrc":"Comissão Impulsiona","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.089","ContaCont":"Provisao Comissao Impulsiona - Exclusao","ContaOrc":"Comissão Impulsiona","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.054","ContaCont":"Servicos Prestados Por Terceiros Pj","ContaOrc":"Comissão Instaladores","Frente":"Indústria"},
-        {"Código":"3.1.8.06.056","ContaCont":"Servicos Prestados Por Terceiros","ContaOrc":"Comissão Instaladores","Frente":"Indústria"},
-        {"Código":"3.1.8.06.079","ContaCont":"Servicos Prestados Por Terceiros Pf","ContaOrc":"Comissão Instaladores","Frente":"Indústria"},
-        {"Código":"3.1.8.06.080","ContaCont":"Comissões De Terceiros Pf Sobre Vendas","ContaOrc":"Comissão Instaladores","Frente":"Indústria"},
-        {"Código":"3.1.8.06.081","ContaCont":"Comissões De Terceiros Pj Sobre Vendas","ContaOrc":"Comissão Instaladores","Frente":"Indústria"},
-        {"Código":"3.1.8.01.002","ContaCont":"Comissoes Vendedores","ContaOrc":"Comissões - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.008","ContaCont":"Assessoria Juridica - Tributario","ContaOrc":"Consultoria Contábil","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.017","ContaCont":"Despesas Com Auditoria","ContaOrc":"Consultoria Contábil","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.020","ContaCont":"Consultoria Em Contabilidade","ContaOrc":"Consultoria Contábil","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.091","ContaCont":"Assessoria Juridica - Societario","ContaOrc":"Consultoria Contábil","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.108","ContaCont":"Consultoria Juridica","ContaOrc":"Consultoria Contábil","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.047","ContaCont":"Consultorias Ambientais","ContaOrc":"Consultorias Ambientais","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.049","ContaCont":"Consultoria Assistencia Medica","ContaOrc":"Consultorias De Rh","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.020","ContaCont":"Consultoria Assistencia Medica","ContaOrc":"Consultorias De Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.018","ContaCont":"Consultoria Assistencia Medica","ContaOrc":"Consultorias De Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.071","ContaCont":"Consultoria Em Recursos Humanos","ContaOrc":"Consultorias De Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.019","ContaCont":"Consultoria De Sistemas","ContaOrc":"Consultorias De Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.104","ContaCont":"Serviços De Cloud","ContaOrc":"Consultorias De Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.021","ContaCont":"Consultoria Em Gestao","ContaOrc":"Consultorias Em Cobrança","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.085","ContaCont":"Consultoria Em Cobrança","ContaOrc":"Consultorias Em Cobrança","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.007","ContaCont":"Bens De Natureza Permanente","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.011","ContaCont":"Copias E Fotocopias","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.020","ContaCont":"Material De Limpeza E Cozinha","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.028","ContaCont":"Material De Uso E Consumo","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.029","ContaCont":"Materias De Seguranca","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.036","ContaCont":"Residuos Nao Reciclaveis","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.037","ContaCont":"Segurança Do Trabalho","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.047","ContaCont":"Uniformes E Equipamentos","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.011","ContaCont":"Bens De Natureza Permanente","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.019","ContaCont":"Copias E Fotocopias","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.028","ContaCont":"Material De Limpeza E Cozinha","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.038","ContaCont":"Material De Uso E Consumo","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.039","ContaCont":"Materiais De Seguranca","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.048","ContaCont":"Servicos De Instalacao","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.8.06.053","ContaCont":"Uniformes E Equipamentos","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.009","ContaCont":"Assinaturas Jornais, Revistas E Tv","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.010","ContaCont":"Bens De Natureza Permanente","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.023","ContaCont":"Copias E Fotocopias","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.050","ContaCont":"Material De Uso E Consumo","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.051","ContaCont":"Material De Limpeza E Cozinha","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.052","ContaCont":"Materias De Seguranca","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.056","ContaCont":"Seguranca Trabalho","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.062","ContaCont":"Uniformes E Equipamentos","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.106","ContaCont":"Despesas Com Epi´S","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.9.05.116","ContaCont":"Despesas Com Recepcoes E Homenagens","ContaOrc":"Consumo E Bens De Pequeno Valor","Frente":"Consumo"},
-        {"Código":"3.1.5.06.032","ContaCont":"Postais/Malotes","ContaOrc":"Correios","Frente":"Consumo"},
-        {"Código":"3.1.8.06.041","ContaCont":"Postais/Malotes","ContaOrc":"Correios","Frente":"Consumo"},
-        {"Código":"3.1.9.05.054","ContaCont":"Postais/Malotes","ContaOrc":"Correios","Frente":"Consumo"},
-        {"Código":"3.1.9.05.006","ContaCont":"Depreciação Direito De Uso Ifrs16","ContaOrc":"Depreciação Direito De Uso","Frente":"Consumo"},
-        {"Código":"3.1.8.06.084","ContaCont":"Rede Autorizada - Importados","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.085","ContaCont":"Peças Em Garantia - Importados","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.086","ContaCont":"Mao De Obra Em Garantia - Importados","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.087","ContaCont":"Servico Tecnico Regulamentado - Importados","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.088","ContaCont":"Amostra/Protótipo De Produtos - Importados","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.094","ContaCont":"Despesas Com Vendas/Amostras","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.099","ContaCont":"Despesa Com Produtos Em Garantia Eos","ContaOrc":"Desenvolvimento De Produtos","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.058","ContaCont":"Industrializacao Por Encomenda","ContaOrc":"Despachante","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.050","ContaCont":"Servicos Prest.Despachantes Aduaneiros","ContaOrc":"Despachante","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.093","ContaCont":"Bonificacoes Sobre Vendas","ContaOrc":"Despesas Com Vendas Eos","Frente":"Financeiro"},
-        {"Código":"3.1.8.07.004","ContaCont":"Despesa Campanha De Vendas Eos","ContaOrc":"Despesas Com Vendas Eos","Frente":"Financeiro"},
-        {"Código":"3.1.8.07.009","ContaCont":"Propaganda, Publicidade E Anuncios – Importados","ContaOrc":"Despesas Com Vendas Eos","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.009","ContaCont":"Conducao","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.012","ContaCont":"Despesas Com Viagens","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.023","ContaCont":"Locacao De Veiculos","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.001","ContaCont":"Hospedagem","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.002","ContaCont":"Alimentação","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.006","ContaCont":"Locação De Veículo","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.007","ContaCont":"Transporte","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.017","ContaCont":"Conducao","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.033","ContaCont":"Locacao De Veiculos","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.015","ContaCont":"Conducao","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.034","ContaCont":"Locacao De Veiculos","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.063","ContaCont":"Hospedagem","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.069","ContaCont":"Despesas Com Viagens","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.078","ContaCont":"Viagens","ContaOrc":"Despesas Com Viagens","Frente":"Financeiro"},
-        {"Código":"3.1.8.01.018","ContaCont":"Cursos E Treinamentos","ContaOrc":"Despesas De Rh - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.021","ContaCont":"Temporarios","ContaOrc":"Despesas De Rh - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.073","ContaCont":"Despesa Com Transferência De Funcionários","ContaOrc":"Despesas De Rh - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.092","ContaCont":"Despesa Gastos Com Funcionarios","ContaOrc":"Despesas De Rh - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.024","ContaCont":"Despesas Indedutiveis","ContaOrc":"Despesas Indedutiveis","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.025","ContaCont":"Despesas Indedutiveis","ContaOrc":"Despesas Indedutiveis","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.102","ContaCont":"Despesas Indedutiveis Cartão Corporativo","ContaOrc":"Despesas Indedutiveis","Frente":"Financeiro"},
-        {"Código":"3.1.5.03.016","ContaCont":"Cursos E Treinamentos","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.017","ContaCont":"Cursos E Treinamentos","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.021","ContaCont":"Temporarios","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.041","ContaCont":"Serviço De Limpeza","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.064","ContaCont":"Patrocínio Cultural","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.070","ContaCont":"Contribuicao Sindical","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.075","ContaCont":"Ajuda De Custo Para Transferencia","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.083","ContaCont":"Entidades De Classe","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.090","ContaCont":"Assessoria Juridica - Trabalhista","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.092","ContaCont":"Despesa Com Transferência De Funcionários","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.093","ContaCont":"Despesa Gastos Com Funcionarios","ContaOrc":"Despesas Rh","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.062","ContaCont":"Despesa C/ Manutenção Loja Virtual","ContaOrc":"E-Commerce","Frente":"Digital"},
-        {"Código":"3.1.8.06.072","ContaCont":"Despesa Com Vendas E-Commerce","ContaOrc":"E-Commerce","Frente":"Digital"},
-        {"Código":"3.1.8.07.002","ContaCont":"Despesa Com Vendas E-Commerce","ContaOrc":"E-Commerce","Frente":"Digital"},
-        {"Código":"3.1.9.03.001","ContaCont":"Contribuicao Fgts","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.03.002","ContaCont":"Contribuicao Inss","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.04.001","ContaCont":"Provisao P/13.Salario","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.04.002","ContaCont":"Provisao P/Ferias","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.04.003","ContaCont":"Provisao Fgts S/13.Salario","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.04.004","ContaCont":"Provisao Fgts S/Ferias","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.04.005","ContaCont":"Provisao Inss S/13.Salario","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.04.006","ContaCont":"Provisao Inss S/Ferias","ContaOrc":"Encargos Sociais - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.5.04.001","ContaCont":"Contribuicao Fgts","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.04.002","ContaCont":"Contribuicao Inss","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.05.001","ContaCont":"Provisao P/13.Salario","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.05.002","ContaCont":"Provisao P/Ferias","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.05.003","ContaCont":"Provisao Fgts S/13.Salario","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.05.004","ContaCont":"Provisao Fgts S/Ferias","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.05.005","ContaCont":"Provisao Inss S/13.Salario","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.05.006","ContaCont":"Provisao Inss S/Ferias","ContaOrc":"Encargos Sociais - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.8.02.001","ContaCont":"Contribuicao Inss","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.02.002","ContaCont":"Contribuicao Fgts","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.03.001","ContaCont":"Provisao P/13.Salario","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.03.002","ContaCont":"Provisao P/Ferias","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.03.003","ContaCont":"Provisao Fgts S/13.Salario","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.03.004","ContaCont":"Provisao Fgts S/Ferias","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.03.005","ContaCont":"Provisao Inss S/13.Salario","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.03.006","ContaCont":"Provisao Inss S/Ferias","ContaOrc":"Encargos Sociais - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.048","ContaCont":"Despesas Com Endomarketing","ContaOrc":"Endomarketing","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.082","ContaCont":"Despesas Natalinas","ContaOrc":"Endomarketing","Frente":"Produtividade"},
-        {"Código":"3.1.5.06.013","ContaCont":"Energia Eletrica","ContaOrc":"Energia","Frente":"Consumo"},
-        {"Código":"3.1.8.06.025","ContaCont":"Energia Eletrica","ContaOrc":"Energia","Frente":"Consumo"},
-        {"Código":"3.1.9.05.026","ContaCont":"Energia Eletrica","ContaOrc":"Energia","Frente":"Consumo"},
-        {"Código":"3.1.9.05.111","ContaCont":"Consultorias Expansão","ContaOrc":"Expansão","Frente":"Consumo"},
-        {"Código":"3.1.8.06.023","ContaCont":"Despesas C/Provisão Para Credito De Liquid Duvidosa","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.067","ContaCont":"Desp. C/ Prov. Dev. Duvidosos - Societario","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.071","ContaCont":"Perdas Com Operações De Vendas/Clientes","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.075","ContaCont":"(-) Despesas C/Prov. P/Credito De Liquid Duvidosa - Exclusão","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.077","ContaCont":"(-) Despesas C/Prov. Dev. Duvidosos - Societario - Exclusão","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.078","ContaCont":"Perdas Com Operações De Vendas/Clientes - Web","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.096","ContaCont":"Desp C/Perdas Estimadas Cred Liq Duvidosa Mktplace - Adicao","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.098","ContaCont":"Despesas De Perdas Com Creditos Incobraveis Cartao Fgl","ContaOrc":"Financeiras/Pcld - Vendas","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.015","ContaCont":"Fretes E Carretos","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.5.06.016","ContaCont":"Fretes S/Devolucoes","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.5.06.017","ContaCont":"Fretes S/Garantias","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.001","ContaCont":"Fretes S/Vendas","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.002","ContaCont":"Fretes E Carretos","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.003","ContaCont":"Fretes S/Devolucoes","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.004","ContaCont":"Fretes S/Garantias","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.005","ContaCont":"Provisão Fretes A Pagar","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.007","ContaCont":"Proviso Fretes - Adicao","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.05.008","ContaCont":"(-) Provisao Fretes - Exclusao","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.8.06.063","ContaCont":"Despesas C/ Entregas De Clientes","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.9.05.028","ContaCont":"Fretes E Carretos","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.9.05.101","ContaCont":"Despesas C/ Entregas De Clientes","ContaOrc":"Frete","Frente":"Logística"},
-        {"Código":"3.1.5.06.008","ContaCont":"Combustiveis E Lubrificantes","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.014","ContaCont":"Pedágio/Estacionamento","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.025","ContaCont":"Manutencao De Veiculos","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.003","ContaCont":"Combustível","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.004","ContaCont":"Pedágio/Estacionamento","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.04.005","ContaCont":"Manutenção/Lavagem","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.014","ContaCont":"Combustiveis E Lubrificantes","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.026","ContaCont":"Pedágio/Estacionamento","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.031","ContaCont":"Manutenção/Lavagem Veículos","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.035","ContaCont":"Manutencao De Veiculos","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.013","ContaCont":"Combustiveis E Lubrificantes","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.036","ContaCont":"Manutencao De Veiculos","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.039","ContaCont":"Manutenção/Lavagem Veículos","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.040","ContaCont":"Multas / Infrações Veiculos","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.053","ContaCont":"Pedágio/Estacionamento","ContaOrc":"Frota","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.052","ContaCont":"Despesa De Garantia Sem Retorno","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.8.06.055","ContaCont":"Despesa Garantia De Clientes","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.8.06.066","ContaCont":"Despesa Garantia De Fornecedor","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.8.06.068","ContaCont":"Despesa Garantia Sem Retorno - Com","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.8.06.069","ContaCont":"Despesa Icms St Garantia","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.9.05.081","ContaCont":"Despesas Com Perda Fornecedor","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.9.05.095","ContaCont":"Despesa Icms St Garantia","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.9.05.099","ContaCont":"Despesa Garantia De Fornecedor","ContaOrc":"Garantia","Frente":"Logística"},
-        {"Código":"3.1.8.06.054","ContaCont":"Despesa Icms Protocolo 21/11","ContaOrc":"Impostos E Taxas","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.001","ContaCont":"Impostos E Taxas Federais","ContaOrc":"Impostos E Taxas","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.002","ContaCont":"Impostos E Taxas Estaduais","ContaOrc":"Impostos E Taxas","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.007","ContaCont":"Despesas Com Icms - St - Pagto. Indevido Ou A Maior","ContaOrc":"Impostos E Taxas","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.082","ContaCont":"Despesas Legais Lojas","ContaOrc":"Impostos E Taxas Fin","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.110","ContaCont":"Despesas Legais Lojas","ContaOrc":"Impostos E Taxas Fin","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.003","ContaCont":"Impostos E Taxas Municipais","ContaOrc":"Impostos E Taxas Fin","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.006","ContaCont":"Taxas Federais","ContaOrc":"Impostos E Taxas Fin","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.008","ContaCont":"Taxas Estaduais","ContaOrc":"Impostos E Taxas Fin","Frente":"Financeiro"},
-        {"Código":"3.1.9.06.009","ContaCont":"Iptu","ContaOrc":"Impostos E Taxas Fin","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.009","ContaCont":"Assessoria Juridica","ContaOrc":"Jurídico","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.029","ContaCont":"Judiciais","ContaOrc":"Jurídico","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.031","ContaCont":"Judiciais","ContaOrc":"Jurídico","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.076","ContaCont":"Honorarios Profissionais Pf","ContaOrc":"Jurídico","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.089","ContaCont":"Assessoria Juridica - Civil","ContaOrc":"Jurídico","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.021","ContaCont":"Lanches E Refeicoes","ContaOrc":"Lanches E Refeições","Frente":"Produtividade"},
-        {"Código":"3.1.5.06.057","ContaCont":"Despesa C/ Visitas A Clientes","ContaOrc":"Lanches E Refeições","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.030","ContaCont":"Lanches E Refeicoes","ContaOrc":"Lanches E Refeições","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.032","ContaCont":"Lanches E Refeicoes","ContaOrc":"Lanches E Refeições","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.029","ContaCont":"Licenças De Uso","ContaOrc":"Licenças Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.109","ContaCont":"Aluguel De Licenças","ContaOrc":"Licenças Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.8.06.032","ContaCont":"Locacao De Maq E Equiptos","ContaOrc":"Locação Máq Equip.","Frente":"Logística"},
-        {"Código":"3.1.9.05.033","ContaCont":"Locacao De Maq E Equiptos","ContaOrc":"Locação Máq Equip.","Frente":"Logística"},
-        {"Código":"3.1.5.06.030","ContaCont":"Pallet","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.5.06.033","ContaCont":"Pre Operacionais-Industria","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.5.06.038","ContaCont":"Serviço De Armazenagem","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.5.06.039","ContaCont":"Servicos De Beneficiamento","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.8.06.015","ContaCont":"Combustíveis Empilhadeira","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.8.06.040","ContaCont":"Pallet","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.8.06.047","ContaCont":"Serviço De Armazenagem","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.9.05.046","ContaCont":"Manutenção Logistica","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.9.05.098","ContaCont":"Pallet","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.9.05.112","ContaCont":"Despesa Tratamento De Residuos","ContaOrc":"Logística","Frente":"Logística"},
-        {"Código":"3.1.8.06.018","ContaCont":"Conservacao De Bens E Intalacoes","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.8.06.034","ContaCont":"Manutencao De Maq.E Equipamentos","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.8.06.036","ContaCont":"Manutencao E Conservacao","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.9.05.016","ContaCont":"Conservacao De Bens E Instalacoes","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.9.05.035","ContaCont":"Manutencao De Maq.E Equipamentos","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.9.05.037","ContaCont":"Manutencao E Conservacao","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.9.05.057","ContaCont":"Servicos De Instalacao","ContaOrc":"Manutenção - Adm","Frente":"Consumo"},
-        {"Código":"3.1.9.05.065","ContaCont":"Doacoes Funcriança","ContaOrc":"Marketing - Adm","Frente":"Digital"},
-        {"Código":"3.1.9.05.117","ContaCont":"Doacoes Fundo Do Idoso","ContaOrc":"Marketing - Adm","Frente":"Digital"},
-        {"Código":"3.1.5.06.035","ContaCont":"Eventos/Convencoes Diversas","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.001","ContaCont":"Adesivos De Publicidade","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.002","ContaCont":"Despesas Com Feiras E Eventos Comerciais","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.008","ContaCont":"Anuncios E Publicacoes","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.012","ContaCont":"Brindes E Doacoes","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.044","ContaCont":"Propaganda, Publicidade E Anuncios","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.045","ContaCont":"Eventos/Convencoes Diversas","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.07.001","ContaCont":"Propaganda, Publicidade E Anuncios","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.07.018","ContaCont":"Campanha Copa 2026","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.9.05.007","ContaCont":"Anuncios E Publicacoes","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.9.05.011","ContaCont":"Brindes E Doacoes","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.9.05.027","ContaCont":"Eventos/Convencoes Diversas","ContaOrc":"Marketing - Vendas","Frente":"Digital"},
-        {"Código":"3.1.8.06.074","ContaCont":"Despesa Com Marketplace","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.003","ContaCont":"Despesa Com Marketplace","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.005","ContaCont":"Despesa Com Marketplace Madeira","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.006","ContaCont":"Despesa Com Marketplace Tatyx","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.007","ContaCont":"Despesa Com Marketplace Leroy","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.008","ContaCont":"Despesa Com Marketplace Carrefour","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.010","ContaCont":"Despesa Com Marketplace Mercado Livre","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.011","ContaCont":"Despesa Com Marketplace Kabum","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.012","ContaCont":"Despesa Com Marketplace B2W","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.015","ContaCont":"Outras Despesas Com Marketplace","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.016","ContaCont":"Provisao Despesa Com Marketplace (Comissao) - Adicao","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.07.017","ContaCont":"(-) Provisao Despesa Com Marketplace (Comissao) - Exclusao","ContaOrc":"Marketplace","Frente":"Digital"},
-        {"Código":"3.1.8.06.064","ContaCont":"Material De Embalagem","ContaOrc":"Material De Embalagem - Vendas","Frente":"Consumo"},
-        {"Código":"3.1.5.06.050","ContaCont":"Provisao Para Perda De Estoques - Industrial","ContaOrc":"Obsoletos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.060","ContaCont":"Provisao Para Perda De Estoques - Comercial","ContaOrc":"Obsoletos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.076","ContaCont":"(-) Despesas C/Prov.P/Perda De Estoques Comercial - Exclusão","ContaOrc":"Obsoletos","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.080","ContaCont":"Provisao Para Perda De Estoques","ContaOrc":"Obsoletos","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.065","ContaCont":"Outras Consultorias","ContaOrc":"Outras Consultorias","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.077","ContaCont":"Honorarios Profissionais Pj","ContaOrc":"Outras Consultorias","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.084","ContaCont":"Outras Consultorias","ContaOrc":"Outras Consultorias","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.010","ContaCont":"Conservacao De Bens E Intalacoes","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.022","ContaCont":"Locacao De Maq E Equiptos","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.024","ContaCont":"Manutencao De Maq.E Equipamentos","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.026","ContaCont":"Manutencao E Conservacao","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.027","ContaCont":"Manutencao Seguranca","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.031","ContaCont":"Outras Consultorias E Assessorias","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.040","ContaCont":"Servicos De Instalacao","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.5.06.048","ContaCont":"Combustíveis Empilhadeira","ContaOrc":"Outras Indústria","Frente":"Indústria"},
-        {"Código":"3.1.9.01.001","ContaCont":"Pro-Labore","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.001","ContaCont":"Salarios E Ordenados","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.003","ContaCont":"Horas Extras","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.004","ContaCont":"Gratificacoes","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.005","ContaCont":"Indenizacoes Trabalhistas","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.006","ContaCont":"Participação Nos Lucros E Resultados","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.007","ContaCont":"Assistencia Medica/Odontologica","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.008","ContaCont":"Auxilio Creche","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.009","ContaCont":"Aviso Previo E Indenizacoes","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.010","ContaCont":"Estagiarios","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.011","ContaCont":"Programa De Alimentacao Do Trabalhador","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.012","ContaCont":"Vale Transporte","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.013","ContaCont":"Seguro De Vida Em Grupo","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.014","ContaCont":"Admissionais/Demissionais","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.015","ContaCont":"Medicina Do Trabalho","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.016","ContaCont":"Reclamatória Trabalhista","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.018","ContaCont":"13 Salario","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.019","ContaCont":"Ferias","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.9.02.020","ContaCont":"Farmacia","ContaOrc":"Pessoal - Adm","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.001","ContaCont":"Salarios E Ordenados","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.002","ContaCont":"Horas Extras","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.003","ContaCont":"Gratificacoes","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.004","ContaCont":"Indenizacoes Trabalhistas","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.005","ContaCont":"Participação Nos Lucros E Resultados","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.006","ContaCont":"Assistencia Medica/Odontologica","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.008","ContaCont":"Aviso Previo E Indenizacoes","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.009","ContaCont":"Estagiarios","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.010","ContaCont":"Programa De Alimentacao Do Trabalhador","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.011","ContaCont":"Vale Transporte","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.013","ContaCont":"Admissionais/Demissionais","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.014","ContaCont":"Medicina Do Trabalho","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.015","ContaCont":"Reclamatória Trabalhista","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.019","ContaCont":"Ferias","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.03.021","ContaCont":"Temporarios","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.5.06.059","ContaCont":"Despesa Gastos Com Funcionarios","ContaOrc":"Pessoal - Custo","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.001","ContaCont":"Salarios E Ordenados","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.003","ContaCont":"Horas Extras","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.004","ContaCont":"Gratificacoes","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.006","ContaCont":"Indenizacoes Trabalhistas","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.007","ContaCont":"Participação Nos Lucros E Resultados","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.008","ContaCont":"Assistencia Medica/Odontologica","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.009","ContaCont":"Auxilio Creche","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.010","ContaCont":"Aviso Previo E Indenizacoes","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.011","ContaCont":"Estagiarios","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.012","ContaCont":"Programa De Alimentacao Do Trabalhador","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.013","ContaCont":"Vale Transporte","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.014","ContaCont":"Seguro De Vida Em Grupo","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.015","ContaCont":"Admissionais/Demissionais","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.016","ContaCont":"Medicina Do Trabalho","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.017","ContaCont":"Reclamatória Trabalhista","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.019","ContaCont":"13 Salario","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.8.01.020","ContaCont":"Ferias","ContaOrc":"Pessoal - Vendas","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.113","ContaCont":"Despesas Com Desenvolvimento E Implantação De Sistemas","ContaOrc":"Projetos","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.055","ContaCont":"Premios De Seguros","ContaOrc":"Seguros","Frente":"Financeiro"},
-        {"Código":"3.1.9.05.118","ContaCont":"Servico De Atendimento Ao Consumidor","ContaOrc":"Serviço De Atendimento Ao Consumidor","Frente":"Digital"},
-        {"Código":"3.1.8.06.049","ContaCont":"Instalação De Soluções","ContaOrc":"Serviços De Terceiros","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.042","ContaCont":"Servicos Prestados Por Terceiros Pf","ContaOrc":"Serviços De Terceiros","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.043","ContaCont":"Servicos Prestados Por Terceiros Pj","ContaOrc":"Serviços De Terceiros","Frente":"Produtividade"},
-        {"Código":"3.1.9.05.115","ContaCont":"Transporte De Valores","ContaOrc":"Serviços De Terceiros","Frente":"Produtividade"},
-        {"Código":"3.1.8.06.070","ContaCont":"Material De Informática","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.058","ContaCont":"Servicos De Terceiros Adm","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.088","ContaCont":"Material De Informática","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.107","ContaCont":"Manutenção, Suporte Em Ti","ContaOrc":"Serviços Terceiros Ti","Frente":"Tecnologia"},
-        {"Código":"3.1.5.06.043","ContaCont":"Servicos De Vigilancia","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
-        {"Código":"3.1.8.06.037","ContaCont":"Manutencao Seguranca","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
-        {"Código":"3.1.8.06.051","ContaCont":"Servicos De Vigilancia","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
-        {"Código":"3.1.9.05.038","ContaCont":"Manutencao Seguranca","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
-        {"Código":"3.1.9.05.060","ContaCont":"Serviço De Vigilância","ContaOrc":"Serviços Vigilância","Frente":"Consumo"},
-        {"Código":"3.1.8.06.005","ContaCont":"Taxa Administradora Cartão","ContaOrc":"Tarifa Cartão","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.006","ContaCont":"Aluguel Maquina Cartao Credito","ContaOrc":"Tarifa Cartão","Frente":"Financeiro"},
-        {"Código":"3.1.5.06.046","ContaCont":"Comunicação/Telefonia","ContaOrc":"Telefonia Adm","Frente":"Tecnologia"},
-        {"Código":"3.1.8.06.016","ContaCont":"Comunicação/Telefonia","ContaOrc":"Telefonia Adm","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.014","ContaCont":"Comunicação/Telefonia","ContaOrc":"Telefonia Adm","Frente":"Tecnologia"},
-        {"Código":"3.1.9.05.103","ContaCont":"Dados E Internet","ContaOrc":"Telefonia Adm","Frente":"Tecnologia"},
-        {"Código":"3.1.8.06.022","ContaCont":"Despesa C/ Visitas A Clientes","ContaOrc":"Verba Comercial","Frente":"Financeiro"},
-        {"Código":"3.1.8.06.083","ContaCont":"Despesas Com Vendas Lojas","ContaOrc":"Verba Comercial","Frente":"Financeiro"},
-        {"Código":"3.2.1.01.012","ContaCont":"DESPESAS C/ TITULOS DE CLIENTES","ContaOrc":"Tarifa Boleto","Frente":"Financeiro"},
-    ]
-    return pd.DataFrame(plano)
-
-# ── LISTAS AUXILIARES ──────────────────────────────────────────────────────────
-def ler_centros_custo() -> list:
-    return [
-        "10.02 - Corp – Facilities","20.01 - TI - Backoffice","20.02 - TI - Sistemas",
-        "20.03 - TI - Governança","20.04 - TI - Infra","20.05 - Seguranca","20.06 - TI - Digital",
-        "20.08 - TI - Arquitetura","21.01 - Fin - Controladoria","21.02 - Fin - Contabilidade",
-        "21.03 - Fin - Fiscal - Apuração","21.04 - Auditoria","21.05 - Fin - Fiscal - Sustentação",
-        "21.06 - Fin - Backoffice","22.01 - Filiais - Admnistrativo","22.02 - Integra - Contas a Receber",
-        "22.03 - Integra - Contas a Pagar","22.04 - Corp - Administrativo","22.05 - Fin - Tesouraria",
-        "22.07 - Fin - Crédito","22.08 - Fin - Cobrança","23.01 - RH - Backoffice","23.03 - RH - DHO",
-        "23.04 - RH - Recrutamento e Seleção","23.05 - RH - Consultoria Interna",
-        "23.06 - RH - Depart. Pessoal","23.07 - RH - Remuneração","24.01 - Fin - Jurídico",
-        "24.02 - Prevenção E Perdas","25.01 - Dept - Projetos","30.01 - Administrativo Vendas",
-        "30.02 - Filiais - Equipe Vendas","30.03 - Filiais - Equipe Vendas II",
-        "30.04 - Inteligência de Mercado","30.05 - Ecommerce","30.06 - Filiais - Logistica",
-        "30.07 - Equipe Negócio - Câmara","30.08 - Equipe Negócio - VRF","30.09 - SAC Vendas",
-        "30.10 - B2B","30.11 - Programa Impulsiona","30.12 - SAC","30.91 - Filiais - Gerentes",
-        "30.92 - Filiais - Regionais","30.96 - Filiais - Despesas filiais","30.97 - Filiais - TI",
-        "31.01 - Marketing","31.03 - E-Commerce Marketing","32.03 - Logística - Planejamento",
-        "32.04 - Garantia Nacional","32.06 - Logistica - Pós Venda","32.07 - Logística - Backoffice",
-        "33.02 - Compras Nacional - Backoffice","33.03 - EOS - Backoffice",
-        "33.05 - Logística - Gestão de Frete","33.06 - Compras Nacional - Abastecimento",
-        "33.07 - Div Eletro - Desenvol Produto","33.08 - Compras Nacional - Comercial",
-        "33.09 - Compras Nacional - Doméstica","33.10 - Compras Nacional - Sell Out",
-        "33.11 - EOS Peças - Vendas","33.12 - EOS Peças - Compras","33.13 - EOS Peças - Importação",
-        "33.14 - Div Eletro - Marketing","33.15 - Div Eletro - Compras","33.16 - Div Eletro - Pós vendas",
-        "33.17 - Compras Nacional - AC","34.01 - Filiais - Manutenção","34.02 - Integra - Compras Indiretas",
-        "34.03 - Expansão","34.04 - Integra - Fiscal Escrituração","40.01 - Indústria - Administração",
-        "40.03 - Indústria - Vendas Externas","40.05 - Indústria - Produção",
-    ]
-
-FILIAIS_DATA = [
-    {"cod":1,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"LOJA"},
-    {"cod":2,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"CD"},
-    {"cod":3,"cidade":"CURITIBA","uf":"PR","regional":"S","est":"LOJA"},
-    {"cod":4,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":5,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"IND"},
-    {"cod":6,"cidade":"RECIFE","uf":"PE","regional":"N/NE","est":"LOJA"},
-    {"cod":7,"cidade":"RIBEIRAO PRETO","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":8,"cidade":"RIO DE JANEIRO","uf":"RJ","regional":"SE/CO","est":"LOJA"},
-    {"cod":9,"cidade":"JOAO PESSOA","uf":"PB","regional":"N/NE","est":"LOJA"},
-    {"cod":10,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"LOJA"},
-    {"cod":11,"cidade":"EXTREMA","uf":"MG","regional":"SE/CO","est":"CD"},
-    {"cod":12,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"LOJA"},
-    {"cod":13,"cidade":"VITORIA","uf":"ES","regional":"SE/CO","est":"LOJA"},
-    {"cod":14,"cidade":"CACHOEIRINHA","uf":"RS","regional":"S","est":"CD"},
-    {"cod":15,"cidade":"CURITIBA","uf":"PR","regional":"S","est":"CD"},
-    {"cod":16,"cidade":"CACHOEIRINHA","uf":"RS","regional":"S","est":"IND"},
-    {"cod":17,"cidade":"ITAITINGA","uf":"CE","regional":"N/NE","est":"CD"},
-    {"cod":18,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":19,"cidade":"CAMPINAS","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":20,"cidade":"SAO JOSE DO RIO PRETO","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":21,"cidade":"GOIANIA","uf":"GO","regional":"SE/CO","est":"LOJA"},
-    {"cod":22,"cidade":"JOAO PESSOA","uf":"PB","regional":"N/NE","est":"IND"},
-    {"cod":23,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":24,"cidade":"FORTALEZA","uf":"CE","regional":"N/NE","est":"LOJA"},
-    {"cod":25,"cidade":"VILA VELHA","uf":"ES","regional":"SE/CO","est":"LOJA"},
-    {"cod":26,"cidade":"JOAO PESSOA","uf":"PB","regional":"N/NE","est":"LOJA"},
-    {"cod":27,"cidade":"VILA VELHA","uf":"ES","regional":"WEB","est":"CD"},
-    {"cod":28,"cidade":"CACHOEIRINHA","uf":"RS","regional":"S","est":"IND"},
-    {"cod":29,"cidade":"CURITIBA","uf":"PR","regional":"S","est":"LOJA"},
-    {"cod":30,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"CORP"},
-    {"cod":31,"cidade":"BRASILIA","uf":"DF","regional":"SE/CO","est":"LOJA"},
-    {"cod":32,"cidade":"BELO HORIZONTE","uf":"MG","regional":"SE/CO","est":"LOJA"},
-    {"cod":33,"cidade":"SAO JOSE","uf":"SC","regional":"S","est":"LOJA"},
-    {"cod":34,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":35,"cidade":"SALVADOR","uf":"BA","regional":"N/NE","est":"LOJA"},
-    {"cod":36,"cidade":"NATAL","uf":"RN","regional":"N/NE","est":"LOJA"},
-    {"cod":37,"cidade":"BELEM","uf":"PA","regional":"N/NE","est":"LOJA"},
-    {"cod":38,"cidade":"ANANINDEUA","uf":"PA","regional":"N/NE","est":"LOJA"},
-    {"cod":39,"cidade":"MANAUS","uf":"AM","regional":"N/NE","est":"LOJA"},
-    {"cod":40,"cidade":"VILA VELHA","uf":"ES","regional":"SE/CO","est":"CD"},
-    {"cod":41,"cidade":"RECIFE","uf":"PE","regional":"N/NE","est":"LOJA"},
-    {"cod":42,"cidade":"CAMPINAS","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":43,"cidade":"UBERLANDIA","uf":"MG","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":44,"cidade":"SAO JOSE DOS CAMPOS","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":45,"cidade":"PIRACICABA","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":46,"cidade":"GUARULHOS","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":47,"cidade":"MANAUS","uf":"AM","regional":"N/NE","est":"IND"},
-    {"cod":48,"cidade":"ITAJAI","uf":"SC","regional":"S","est":"LOJA"},
-    {"cod":49,"cidade":"NAVEGANTES","uf":"SC","regional":"S","est":"CD"},
-    {"cod":50,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":51,"cidade":"RIO DE JANEIRO","uf":"RJ","regional":"SE/CO","est":"LOJA"},
-    {"cod":52,"cidade":"EXTREMA","uf":"MG","regional":"SE/CO","est":"CD"},
-    {"cod":53,"cidade":"CUIABA","uf":"MT","regional":"SE/CO","est":"LOJA"},
-    {"cod":54,"cidade":"FLORIANOPOLIS","uf":"SC","regional":"S","est":"LOJA"},
-    {"cod":55,"cidade":"CUIABA","uf":"MT","regional":"SE/CO","est":"CD"},
-    {"cod":56,"cidade":"SANTOS","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":57,"cidade":"TERESINA","uf":"PI","regional":"N/NE","est":"LOJA"},
-    {"cod":58,"cidade":"SOROCABA","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":59,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":60,"cidade":"SAO BERNARDO DO CAMPO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":61,"cidade":"RIO DE JANEIRO","uf":"RJ","regional":"SE/CO","est":"LOJA"},
-    {"cod":62,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":63,"cidade":"CAMPO GRANDE","uf":"MS","regional":"SE/CO","est":"LOJA"},
-    {"cod":64,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"IND"},
-    {"cod":65,"cidade":"MACEIO","uf":"AL","regional":"N/NE","est":"LOJA"},
-    {"cod":66,"cidade":"SAO PAULO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":67,"cidade":"JOINVILLE","uf":"SC","regional":"S","est":"LOJA"},
-    {"cod":68,"cidade":"LONDRINA","uf":"PR","regional":"S","est":"LOJA"},
-    {"cod":69,"cidade":"OSASCO","uf":"SP","regional":"SP","est":"LOJA"},
-    {"cod":70,"cidade":"GARUVA","uf":"SC","regional":"S","est":"CD"},
-    {"cod":71,"cidade":"VILA VELHA","uf":"ES","regional":"SE/CO","est":"LOJA"},
-    {"cod":72,"cidade":"CANOAS","uf":"RS","regional":"S","est":"LOJA"},
-    {"cod":73,"cidade":"SIMOES FILHO","uf":"BA","regional":"N/NE","est":"CD"},
-    {"cod":74,"cidade":"LAURO DE FREITAS","uf":"BA","regional":"N/NE","est":"LOJA"},
-    {"cod":75,"cidade":"TERESINA","uf":"PI","regional":"N/NE","est":"CD"},
-    {"cod":76,"cidade":"CAJAMAR","uf":"SP","regional":"SP","est":"CD"},
-    {"cod":77,"cidade":"NOVO HAMBURGO","uf":"RS","regional":"S","est":"LOJA"},
-    {"cod":78,"cidade":"ANANINDEUA","uf":"PA","regional":"N/NE","est":"CD"},
-    {"cod":79,"cidade":"PASSO FUNDO","uf":"RS","regional":"S","est":"LOJA"},
-    {"cod":80,"cidade":"FEIRA DE SANTANA","uf":"BA","regional":"N/NE","est":"LOJA"},
-    {"cod":81,"cidade":"APARECIDA DE GOIANIA","uf":"GO","regional":"SE/CO","est":"LOJA"},
-    {"cod":82,"cidade":"BRASILIA","uf":"DF","regional":"SE/CO","est":"LOJA"},
-    {"cod":83,"cidade":"ANAPOLIS","uf":"GO","regional":"SE/CO","est":"LOJA"},
-    {"cod":84,"cidade":"SAO JOSE DO RIO PRETO","uf":"SP","regional":"SP INT/TRI","est":"LOJA"},
-    {"cod":85,"cidade":"PORTO ALEGRE","uf":"RS","regional":"S","est":"SAC"},
-    {"cod":86,"cidade":"FORTALEZA","uf":"CE","regional":"N/NE","est":"LOJA"},
-]
-
-def ler_filiais() -> list:
-    return [f"{f['cod']} - {f['cidade']} ({f['uf']})" for f in FILIAIS_DATA]
-
-def ler_regionais() -> list:
-    return sorted(set(f["regional"] for f in FILIAIS_DATA))
-
-def filiais_por_regional(regional: str) -> list:
-    return [f"{f['cod']} - {f['cidade']} ({f['uf']})" for f in FILIAIS_DATA if f["regional"] == regional]
-
-def regional_da_filial(filial_str: str) -> str:
-    """Retorna a regional de uma string de filial '1 - PORTO ALEGRE (RS)'."""
-    try:
-        cod = int(filial_str.split(" - ")[0].strip())
-        for f in FILIAIS_DATA:
-            if f["cod"] == cod: return f["regional"]
-    except: pass
+def obter_bg_base64(caminho):
+    if os.path.exists(caminho):
+        with open(caminho,"rb") as f: return base64.b64encode(f.read()).decode()
     return ""
 
-def ler_frentes() -> list:
-    return ["Consumo","Digital","Financeiro","Indústria","Logística","Produtividade","Tecnologia"]
+bg_base64 = obter_bg_base64("image_7e68ea.jpg")
 
-def normalizar_frente(frente: str) -> str:
-    """Remapeia Facilities → Consumo e normaliza."""
-    if not frente: return ""
-    f = frente.strip()
-    if f.lower() == "facilities": return "Consumo"
-    return f
+# ── CSS GLOBAL ────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+html,body,[class*="css"]{font-family:'Segoe UI','Segoe UI Web (West European)',sans-serif !important;}
+.fade-in{animation:fadeIn 0.5s forwards;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:translateY(0);}}
+section[data-testid="stSidebar"] div[role="radiogroup"] label>div:first-child{display:none!important;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label{
+  background-color:rgba(255,255,255,0.05)!important;border-radius:8px!important;
+  padding:12px 16px!important;border:1px solid rgba(255,255,255,0.1)!important;
+  margin-bottom:8px!important;width:100%!important;display:flex!important;
+  align-items:center!important;transition:all 0.2s!important;cursor:pointer!important;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label p{color:#fff!important;font-size:15px!important;margin:0!important;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:hover{background-color:rgba(255,255,255,0.1)!important;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked){background-color:#fff!important;border-color:#fff!important;box-shadow:0 4px 6px rgba(0,0,0,0.1)!important;}
+section[data-testid="stSidebar"] div[role="radiogroup"] label:has(input:checked) p{font-weight:700!important;color:#185FA5!important;}
+section[data-testid="stSidebar"]{background-color:#0f172a!important;}
+.stButton>button{background-color:#185FA5!important;color:white!important;border-radius:8px!important;font-weight:600!important;border:none!important;}
+.stButton>button:hover{background-color:#104a85!important;}
+.kpi-container{background:#fff;padding:20px;border-radius:12px;border:1px solid #e2e8f0;text-align:center;}
+.kpi-title{font-size:13px;font-weight:600;color:#64748b;text-transform:uppercase;}
+.kpi-value{font-size:26px;font-weight:700;color:#0f172a;margin-top:8px;}
+.kpi-value-green{font-size:26px;font-weight:700;color:#16a34a;margin-top:8px;}
+.kpi-value-orange{font-size:26px;font-weight:700;color:#f97316;margin-top:8px;}
+/* Cabeçalho tabela SCO — aplica em todos os dataframes */
+thead tr th {
+    background-color: #0f172a !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
+thead tr th div {
+    color: #ffffff !important;
+}
+</style>
+""", unsafe_allow_html=True)
 
-# ── MESES ABSOLUTOS (jan_2026 a dez_2028) ─────────────────────────────────────
-NOMES_MESES = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+if not st.session_state.get("usuario"):
+    st.markdown(f"""<style>
+    .stApp{{background-image:url("data:image/jpg;base64,{bg_base64}");background-size:cover;background-position:center;background-attachment:fixed;}}
+    [data-testid="stForm"]{{background:rgba(255,255,255,0.95)!important;backdrop-filter:blur(15px)!important;padding:40px;border-radius:16px;box-shadow:0 12px 32px rgba(0,0,0,0.3);max-width:420px;margin:0 auto;}}
+    div[data-baseweb="input"]{{position:relative!important;height:44px!important;background-color:#fff!important;border:1px solid #cbd5e1!important;border-radius:8px!important;}}
+    div[data-baseweb="input"]:focus-within{{border-color:#185FA5!important;box-shadow:0 0 0 2px rgba(24,95,165,0.2)!important;}}
+    div[data-baseweb="input"] input{{padding-left:12px!important;height:100%!important;background-color:transparent!important;}}
+    </style>""", unsafe_allow_html=True)
+else:
+    st.markdown("""<style>[data-testid="stForm"]{background:#fff!important;padding:30px;border-radius:12px;border:1px solid #e2e8f0;width:100%;}</style>""", unsafe_allow_html=True)
+    logo = obter_bg_base64("barra_frigelar.png")
+    if logo:
+        st.markdown(f'<div style="margin-bottom:12px;"><img src="data:image/png;base64,{logo}" style="width:100%;display:block;"></div>', unsafe_allow_html=True)
 
-def gerar_colunas_meses_absolutos():
-    """Retorna lista de chaves jan_2026..dez_2028 (compatível com Firestore)."""
-    return [f"{m}_{ano}" for ano in [2026,2027,2028] for m in NOMES_MESES]
+if "usuario" not in st.session_state: st.session_state.usuario = None
 
-def chave_para_label(chave: str) -> str:
-    """Converte jan_2026 -> jan/2026 para exibição."""
-    return chave.replace("_","/",1) if "_" in chave else chave
+def brl(v):
+    try: return f"R$ {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
+    except: return "R$ 0,00"
 
-def gerar_opcoes_mes_ano() -> list:
-    """Retorna lista de opcoes mm/aaaa para selectbox: 01/2026..12/2028."""
-    return [f"{mes:02d}/{ano}" for ano in [2026,2027,2028] for mes in range(1,13)]
+def brl_k(v):
+    """Mantido por compatibilidade — agora formata igual brl_mil."""
+    try: return f"R$ {float(v):,.0f}".replace(",",".")
+    except: return "R$ 0"
 
-def datam(mes_ano_str: str, n: int) -> str:
-    """Retorna o mes+n a partir de mm/aaaa. Tipo DATAM do Excel."""
+def brl_mil(v):
+    """Formata número como R$ 1.000.000 — sem k, sem casas decimais."""
+    try: return f"R$ {float(v):,.0f}".replace(",",".")
+    except: return "R$ 0"
+
+def esta_atrasada(row):
+    hoje = datetime.now().date()
+    nivel = str(row.get("Nível","")).strip()
+    def parse_data(s):
+        s = str(s).strip().split(" ")[0]
+        partes = s.split("/")
+        try:
+            if len(partes) == 3: return datetime(int(partes[2][:4]), int(partes[1]), int(partes[0])).date()
+            if len(partes) == 2: return datetime(int(partes[1][:4]), int(partes[0]), 1).date()
+        except: pass
+        return None
     try:
-        mes, ano = int(mes_ano_str[:2]), int(mes_ano_str[3:])
-        total = (ano - 2026) * 12 + (mes - 1) + n
-        ano_r = 2026 + total // 12
-        mes_r = total % 12 + 1
-        return f"{mes_r:02d}/{ano_r}"
-    except:
-        return ""
-
-def mes_ano_para_chave(mes_ano_str: str) -> str:
-    """Converte 08/2026 -> ago_2026."""
-    try:
-        mes, ano = int(mes_ano_str[:2]), int(mes_ano_str[3:])
-        return f"{NOMES_MESES[mes-1]}_{ano}"
-    except:
-        return ""
-
-# ── AUTENTICAÇÃO ───────────────────────────────────────────────────────────────
-def autenticar(login, senha):
-    doc = db_fire.collection("usuarios").document(login.lower()).get()
-    if doc.exists:
-        d = doc.to_dict()
-        senha_banco = d.get("senha","")
-        ativo = d.get("Ativo", d.get("ativo","Não"))
-        if senha_banco == senha and ativo in ["Sim", True, "sim"]:
-            d["login"] = doc.id
-            if "nome" not in d: d["nome"] = d.get("Nome Completo","Usuário")
-            if "perfil" not in d: d["perfil"] = d.get("Perfil","craque")
-            if "frente" not in d: d["frente"] = d.get("Frente de Negócio","")
-            return d
-    return None
-
-# ── OPORTUNIDADES ──────────────────────────────────────────────────────────────
-def titulo_ja_existe(titulo, id_excluir=""):
-    for doc in db_fire.collection("oportunidades").stream():
-        if doc.id == id_excluir: continue
-        if doc.to_dict().get("Título","").strip().lower() == titulo.strip().lower():
-            return True
+        if "N2" in nivel:
+            d = parse_data(row.get("Data Prevista N3",""))
+            return hoje > d if d else False
+        if "N3" in nivel:
+            d = parse_data(row.get("Data Prevista N4",""))
+            return hoje > d if d else False
+    except: pass
     return False
 
-def ler_oportunidades() -> pd.DataFrame:
-    docs = db_fire.collection("oportunidades").stream()
-    lista = [{**doc.to_dict(), "ID": doc.id} for doc in docs]
-    if not lista: return pd.DataFrame()
-    df = pd.DataFrame(lista)
-    if "Submetido Controladoria" not in df.columns: df["Submetido Controladoria"] = False
+# ── HELPER: monta tabela SCO ──────────────────────────────────────────────────
+def fmt_data_curta(val):
+    """Converte qualquer formato de data para mm/aaaa. Trata dd/mm/aaaa, dd/mm/aaaa HH:MM, mm/aaaa."""
+    s = str(val).strip()
+    if not s or s in ("nan","None",""): return ""
+    # remove horário se existir: "01/08/2026 14:30" → "01/08/2026"
+    s = s.split(" ")[0].strip()
+    partes = s.split("/")
+    if len(partes) == 3:
+        # dd/mm/aaaa → mm/aaaa
+        return f"{partes[1]}/{partes[2][:4]}"
+    if len(partes) == 2:
+        # já mm/aaaa
+        return f"{partes[0]}/{partes[1][:4]}"
+    return s
 
-    # garante todos os meses absolutos como colunas numéricas
-    meses_abs = gerar_colunas_meses_absolutos()
+def montar_tabela_sco(df_in):
+    df = df_in.copy()
+    meses_abs = db.gerar_colunas_meses_absolutos()  # jan_2026 ... dez_2028
+
+    # garante meses absolutos numéricos
     for m in meses_abs:
         if m not in df.columns: df[m] = 0.0
         else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
 
-    # Total Estimado 2026 é SEMPRE calculado pela soma dos meses absolutos de 2026
-    # (nunca é um valor fixo gravado — evita dessincronia quando a ideia é editada)
-    meses_2026 = [f"{m}_2026" for m in NOMES_MESES]
-    df["Total Estimado 2026"] = sum(df[m] for m in meses_2026 if m in df.columns)
+    df["Total Estimado 2026"] = pd.to_numeric(df.get("Total Estimado 2026",0), errors="coerce").fillna(0.0)
 
-    return df.fillna("")
+    # trimestres calculados APENAS pelos meses absolutos de 2026
+    nomes = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+    tri1 = [f"{nomes[i]}_2026" for i in range(0,3)]   # jan-mar
+    tri2 = [f"{nomes[i]}_2026" for i in range(3,6)]   # abr-jun
+    tri3 = [f"{nomes[i]}_2026" for i in range(6,9)]   # jul-set
+    tri4 = [f"{nomes[i]}_2026" for i in range(9,12)]  # out-dez
 
-def cadastrar_oportunidade(dados, usuario):
-    hoje = datetime.now().strftime("%d/%m/%Y")
-    nova = {
-        "Nível": "N1 - Ideia",
-        "Título": dados.get("titulo",""),
-        "Descrição": dados.get("descricao",""),
-        "Grupo Contábil": dados.get("grupo_contabil",""),
-        "Comentário da Semana": "",
-        "Conta Orçamento": dados.get("conta_orc",""),
-        "Conta Contábil": dados.get("conta_cont",""),
-        "Dono da Oportunidade": dados.get("dono",""),
-        "CC Dono": dados.get("cc_dono",""),
-        "Craque": usuario.get("nome",""),
-        "Area Craque": dados.get("area_craque", usuario.get("area_craque","")),
-        "Filial": dados.get("filial", usuario.get("filial","")),
-        "Frente de Negócio": dados.get("frente_automatica",""),
-        "Data Cadastro (N1)": hoje,
-        "Data Realizada N1": hoje,
-        "Data Prevista N2": "", "Data Realizada N2": "",
-        "Data Prevista N3": dados.get("data_prev_n3",""),
-        "Data Realizada N3": "",
-        "Data Prevista N4": dados.get("data_prev_n4",""),
-        "Data Realizada N4": "",
-        "Submetido Controladoria": False,
-    }
-    # inicializa todos os meses absolutos com zero — Total 2026 é calculado, não gravado
-    for m in gerar_colunas_meses_absolutos():
-        nova[m] = 0.0
-    # se veio um valor inicial de ganho 2026 sem detalhamento mensal, coloca no primeiro mês de 2026
-    ganho_inicial = float(dados.get("ganho_2026", 0) or 0)
-    if ganho_inicial > 0:
-        nova["jan_2026"] = ganho_inicial
-    doc_ref = db_fire.collection("oportunidades").add(nova)
-    id_gerado = doc_ref[1].id
-    registrar_log(usuario, "CADASTRO", f"Nova oportunidade: {nova['Título']}", id_gerado)
-    return id_gerado
+    def soma_meses(df, cols):
+        return sum(df[c] if c in df.columns else 0 for c in cols)
 
-def movimentar_nivel(id_, novo_nivel, usuario, justificativa=""):
-    doc = db_fire.collection("oportunidades").document(id_).get()
-    nivel_anterior = doc.to_dict().get("Nível","?") if doc.exists else "?"
-    hoje = datetime.now().strftime("%d/%m/%Y")
-    update = {"Nível": novo_nivel}
-    if "N3" in novo_nivel: update["Data Realizada N3"] = hoje
-    if "N4" in novo_nivel: update["Data Realizada N4"] = hoje
-    if "N2" in novo_nivel: update["Data Realizada N2"] = hoje
-    if justificativa: update["Justificativa Cancelamento"] = justificativa
-    db_fire.collection("oportunidades").document(id_).update(update)
-    desc = f"{nivel_anterior} → {novo_nivel}"
-    if justificativa: desc += f" | Justificativa: {justificativa}"
-    registrar_log(usuario, "MUDANÇA DE NÍVEL", desc, id_)
+    df["1°TRI 26"] = soma_meses(df, tri1)
+    df["2°TRI 26"] = soma_meses(df, tri2)
+    df["3°TRI 26"] = soma_meses(df, tri3)
+    df["4°TRI 26"] = soma_meses(df, tri4)
 
-def submeter_para_controladoria(id_, usuario):
-    db_fire.collection("oportunidades").document(id_).update({"Submetido Controladoria": True})
-    registrar_log(usuario, "SUBMETIDO CONTROLADORIA", "Enviado para validação N4", id_)
+    # formata datas para mm/aaaa
+    cols_data = ["Data Realizada N1","Data Prevista N2","Data Realizada N2",
+                 "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4"]
+    for c in cols_data:
+        if c in df.columns:
+            df[c] = df[c].apply(fmt_data_curta)
 
-def adicionar_comentario(id_, texto, usuario):
-    hoje = datetime.now().strftime("%d/%m/%Y %H:%M")
-    autor = usuario.get("nome","?")
-    doc_ref = db_fire.collection("oportunidades").document(id_)
-    atual = doc_ref.get().to_dict().get("Comentário da Semana","")
-    novo = (atual + f"\n[{hoje} - {autor}] {texto}").strip()
-    doc_ref.update({"Comentário da Semana": novo})
-    registrar_log(usuario, "COMENTÁRIO", f"{texto[:60]}", id_)
+    # Título SEMPRE primeiro, Descrição logo depois
+    colunas_base = ["Título","Descrição","Comentário da Semana","Nível","Grupo Contábil","Frente de Negócio",
+        "Conta Orçamento","Conta Contábil",
+        "Data Realizada N1","Data Prevista N2","Data Realizada N2",
+        "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
+        "1°TRI 26","2°TRI 26","3°TRI 26","4°TRI 26","Total Estimado 2026",
+        "Dono da Oportunidade","CC Dono","Filial","Craque","Area Craque"]
+    cols = [c for c in colunas_base if c in df.columns]
+    if "Título" not in cols and "Título" in df.columns:
+        cols = ["Título"] + cols
 
-def editar_campos_oportunidade(id_, campos, usuario):
-    """
-    Salva campos editados. REGRA CRÍTICA: se a edição envolve meses absolutos,
-    TODOS os meses absolutos antigos são zerados primeiro, e só os novos meses
-    enviados em `campos` ficam com valor. Isso evita que valores de uma edição
-    anterior fiquem "fantasmas" somados aos novos.
-    Total Estimado 2026 NÃO é gravado — é sempre calculado em ler_oportunidades().
-    """
-    meses = gerar_colunas_meses_absolutos()
-    tem_edicao_de_meses = any(m in campos for m in meses)
-
-    if tem_edicao_de_meses:
-        # zera TODOS os meses absolutos antes de aplicar os novos valores
-        for m in meses:
-            if m not in campos:
-                campos[m] = 0.0
-        # converte M1-M12 legados se existirem no banco e nenhum absoluto foi passado com valor
-        valores_novos_nao_zero = any(float(campos.get(m, 0) or 0) != 0 for m in meses)
-        if not valores_novos_nao_zero:
-            data_n4 = campos.get("Data Prevista N4", "")
-            if not data_n4:
-                doc = db_fire.collection("oportunidades").document(id_).get()
-                data_n4 = doc.to_dict().get("Data Prevista N4", "") if doc.exists else ""
-            if data_n4:
-                doc = db_fire.collection("oportunidades").document(id_).get()
-                d = doc.to_dict() if doc.exists else {}
-                for i in range(1, 13):
-                    v = float(d.get(f"M{i}", 0) or 0)
-                    if v != 0:
-                        chave = mes_ano_para_chave(datam(data_n4, i - 1))
-                        if chave and chave in set(meses):
-                            campos[chave] = v
-
-    # remove qualquer M1-M12 legado e Total Estimado 2026 fixo dos campos (não gravamos mais)
-    for i in range(1, 13):
-        campos.pop(f"M{i}", None)
-    campos.pop("Total Estimado 2026", None)
-
-    db_fire.collection("oportunidades").document(id_).update(campos)
-    registrar_log(usuario, "EDIÇÃO DE CAMPOS", f"Campos: {', '.join(list(campos.keys())[:5])}", id_)
-
-# ── USUÁRIOS ───────────────────────────────────────────────────────────────────
-def cadastrar_usuario_manual(login, nome, perfil, email, filial, area, frente, senha, area_craque=""):
-    db_fire.collection("usuarios").document(login.lower()).set({
-        "login": login, "nome": nome, "Nome Completo": nome,
-        "perfil": perfil, "Perfil": perfil, "email": email,
-        "filial": filial, "Filial": filial, "area": area,
-        "frente": frente, "Frente de Negócio": frente,
-        "area_craque": area_craque,
-        "senha": senha, "Ativo": "Sim"
+    df_d = df[cols].copy().rename(columns={
+        "Título":"Título da Oportunidade","Nível":"Status",
+        "Frente de Negócio":"Frente","Total Estimado 2026":"Total 2026",
+        "Dono da Oportunidade":"Dono","Data Realizada N1":"N1 (Real)",
+        "Data Prevista N2":"N2 (Prev)","Data Realizada N2":"N2 (Real)",
+        "Data Prevista N3":"N3 (Prev)","Data Realizada N3":"N3 (Real)",
+        "Data Prevista N4":"N4 (Prev)","Data Realizada N4":"N4 (Real)",
+        "Area Craque":"Área Craque",
     })
+    for col in ["1°TRI 26","2°TRI 26","3°TRI 26","4°TRI 26","Total 2026"]:
+        if col in df_d.columns:
+            df_d[col] = df_d[col].apply(lambda v: brl_k(v) if v != "" else "R$ 0")
+    return df_d
 
-def ler_usuarios():
-    lista = []
-    for doc in db_fire.collection("usuarios").stream():
-        d = doc.to_dict(); d["login"] = doc.id
-        if "nome" not in d: d["nome"] = d.get("Nome Completo","")
-        if "perfil" not in d: d["perfil"] = d.get("Perfil","")
-        lista.append(d)
-    if not lista: return pd.DataFrame()
-    return pd.DataFrame(lista)
+def gerar_excel_sco(df_in) -> bytes:
+    """Gera Excel com todas as colunas do documento + meses absolutos."""
+    import re
+    df = df_in.copy()
+    meses_abs = db.gerar_colunas_meses_absolutos()
 
-def atualizar_usuario_completo(login, nome, email, perfil, frente, filial, nova_senha, usuario_logado=None, area_craque=""):
-    upd = {"nome":nome,"Nome Completo":nome,"email":email,"perfil":perfil,"Perfil":perfil,
-           "frente":frente,"Frente de Negócio":frente,"filial":filial,"Filial":filial,
-           "area_craque": area_craque}
-    if nova_senha.strip(): upd["senha"] = nova_senha.strip()
-    db_fire.collection("usuarios").document(login).update(upd)
-    if usuario_logado: registrar_log(usuario_logado,"EDIÇÃO USUÁRIO",f"Editado: {login}")
+    for m in meses_abs:
+        if m not in df.columns: df[m] = 0.0
+        else: df[m] = pd.to_numeric(df[m], errors="coerce").fillna(0.0)
 
-def excluir_usuario(login, usuario_logado=None):
-    db_fire.collection("usuarios").document(login).delete()
-    if usuario_logado: registrar_log(usuario_logado,"EXCLUSÃO USUÁRIO",f"Excluído: {login}")
+    colunas_priority = [
+        "Título","Descrição","Nível","Grupo Contábil","Frente de Negócio",
+        "Conta Orçamento","Conta Contábil","Dono da Oportunidade","CC Dono",
+        "Filial","Craque","Area Craque","Comentário da Semana",
+        "Justificativa Cancelamento","ID","Submetido Controladoria",
+        "Data Realizada N1","Data Prevista N2","Data Realizada N2",
+        "Data Prevista N3","Data Realizada N3","Data Prevista N4","Data Realizada N4",
+        "Total Estimado 2026",
+    ] + meses_abs
 
-# ── ORÇAMENTO ──────────────────────────────────────────────────────────────────
-def ler_orcamento():
-    try:
-        doc = db_fire.collection("config").document("orcamento").get()
-        if doc.exists: return doc.to_dict()
-    except: pass
-    return {f: 0.0 for f in ler_frentes()}
-
-def salvar_orcamento(dados):
-    db_fire.collection("config").document("orcamento").set(dados)
-
-# ── IMPORTAÇÃO EXCEL ───────────────────────────────────────────────────────────
-def gerar_planilha_padrao() -> bytes:
-    colunas = [
-        "Título","Descrição","Grupo Contábil (ADM/COM/IND)",
-        "Conta Orçamento","Desc. Conta Contábil","Dono da Oportunidade",
-        "Centro de Custo do Dono da Oportunidade","Filial","Status",
-        "Total Estimado 2026","Data Prevista N3","Data Prevista N4",
-        "M1","M2","M3","M4","M5","M6","M7","M8","M9","M10","M11","M12"
+    padrao_mes_legado = re.compile(r'^(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)/\d{4}$')
+    padrao_m_relativo = re.compile(r'^M\d{1,2}$')
+    extras = [
+        c for c in df.columns
+        if c not in colunas_priority
+        and not c.startswith("_")
+        and not padrao_mes_legado.match(str(c))
+        and not padrao_m_relativo.match(str(c))
     ]
-    df_padrao = pd.DataFrame(columns=colunas)
-    buf = __import__("io").BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-        df_padrao.to_excel(w, index=False, sheet_name="Importação")
-        ws = w.sheets["Importação"]
-        fmt = w.book.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff"})
-        for i, col in enumerate(colunas):
-            ws.write(0, i, col, fmt)
-            ws.set_column(i, i, max(len(col)+4, 18))
+    todas = [c for c in colunas_priority if c in df.columns] + [c for c in extras if c in df.columns]
+
+    cols_laranja = {
+        "Data Prevista N2","Data Prevista N3","Data Prevista N4",
+        "Total Estimado 2026",
+    } | set(meses_abs)
+
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
+        df[todas].to_excel(writer, index=False, sheet_name="SCO")
+        wb = writer.book; ws = writer.sheets["SCO"]
+        fmt_azul    = wb.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff","border":1,"text_wrap":True})
+        fmt_laranja = wb.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff","border":1,"text_wrap":True})
+        for i, col in enumerate(todas):
+            fmt = fmt_laranja if col in cols_laranja else fmt_azul
+            label = db.chave_para_label(col) if col in set(meses_abs) else col
+            ws.write(0, i, label, fmt)
+            ws.set_column(i, i, max(len(label)+2, 14))
     return buf.getvalue()
 
-def importar_base_excel(df, u):
-    import uuid, re
-    df_pc = ler_plano_contas()
+# ── LOGIN ─────────────────────────────────────────────────────────────────────
+def tela_login():
+    col1,col2,col3 = st.columns([1,1.2,1])
+    with col2:
+        st.markdown("<br><br><br>",unsafe_allow_html=True)
+        with st.form("login_form"):
+            st.markdown("<h2 style='text-align:center;color:#0f172a;'>Bem-vindo(a)</h2>",unsafe_allow_html=True)
+            login = st.text_input("Usuário",placeholder="seu login",icon=":material/person:")
+            senha = st.text_input("Senha",type="password",placeholder="sua senha",icon=":material/lock:")
+            if st.form_submit_button("Entrar",width="stretch",type="primary"):
+                if login.strip() and senha.strip():
+                    ui = db.autenticar(login.strip(),senha.strip())
+                    if ui: st.session_state.usuario=ui; st.rerun()
+                    else: st.error("Usuário ou senha incorretos.")
+                else: st.warning("Preencha login e senha.")
 
-    def norm(s):
-        return re.sub(r'[\s_]+', ' ', str(s).strip().lower())
+# ── NAVEGAÇÃO ─────────────────────────────────────────────────────────────────
+def painel_principal():
+    u = st.session_state.usuario
+    hora = datetime.now().hour
+    saudacao = "Bom dia" if hora<12 else "Boa tarde" if hora<18 else "Boa noite"
+    with st.sidebar:
+        st.markdown(f'<div style="padding:10px 0 20px 0;"><span style="font-size:18px;font-weight:700;color:#fff;">{saudacao}, {u["nome"].split()[0]}!</span><p style="font-size:12px;color:#94a3b8;margin-top:4px;">Perfil: {u["perfil"].upper()}</p></div>',unsafe_allow_html=True)
+        menu = []
+        if u["perfil"] in ("craque","lider","adm"): menu.extend(["Cadastro de Oportunidade","SCO - Oportunidades"])
+        if u["perfil"] == "diretoria": menu.append("SCO - Oportunidades")
+        if u["perfil"] in ("lider","adm","diretoria"): menu.append("Painel Executivo")
+        if u["perfil"] in ("adm","diretoria"): menu.append("Comitê de Despesas (N1)")
+        if u["perfil"] == "adm": menu.extend(["Validação Controladoria","Painel de Acessos","Log de Alterações"])
+        pagina = st.radio("Nav",menu,label_visibility="collapsed")
+        st.markdown("<br><hr style='border-color:rgba(255,255,255,0.1);'>",unsafe_allow_html=True)
+        if st.button("Sair",use_container_width=True): st.session_state.usuario=None; st.rerun()
 
-    lookup_cont = {norm(k): v for k,v in zip(df_pc["ContaCont"], df_pc["Frente"])}
-    lookup_orc  = {norm(k): v for k,v in zip(df_pc["ContaOrc"],  df_pc["Frente"])}
+    st.markdown('<div class="fade-in">',unsafe_allow_html=True)
+    if pagina=="Cadastro de Oportunidade": pagina_cadastro()
+    elif pagina=="SCO - Oportunidades": pagina_sco()
+    elif pagina=="Painel Executivo": pagina_painel_integrado()
+    elif pagina=="Comitê de Despesas (N1)": pagina_comite()
+    elif pagina=="Validação Controladoria": pagina_controladoria()
+    elif pagina=="Painel de Acessos": pagina_admin()
+    elif pagina=="Log de Alterações": pagina_log()
+    st.markdown('</div>',unsafe_allow_html=True)
 
-    meses_abs = gerar_colunas_meses_absolutos()
-    label_para_chave = {chave_para_label(m): m for m in meses_abs}
+# ── CADASTRO ──────────────────────────────────────────────────────────────────
+def pagina_cadastro():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color:#0f172a;">Cadastro de Oportunidade</h2>',unsafe_allow_html=True)
+    df_pc = db.ler_plano_contas()
+    with st.container(border=True):
+        st.markdown("##### 1. Detalhes do Escopo")
+        titulo = st.text_input("Título da Melhoria *", max_chars=80)
+        descricao = st.text_area("Descrição da Melhoria *", max_chars=600)
+        col1,col2 = st.columns(2)
+        with col1:
+            dono = st.text_input("Dono da Oportunidade *")
+            filial_sel = st.selectbox("Filial *",[""] + db.ler_filiais())
+            grupo_contabil = st.selectbox("Grupo Contábil *",["","ADM","COM","IND"])
+        with col2:
+            cc_dono = st.selectbox("Centro de Custo (CC Dono) *",[""] + db.ler_centros_custo())
 
-    df = df.dropna(how="all").fillna("")
-    count = 0
-    for _, row in df.iterrows():
-        titulo = str(row.get("Título","")).strip()
-        if not titulo or titulo.lower() == "nan": continue
-        id_unico = str(uuid.uuid4()).split("-")[0][:6].upper()
+        st.markdown("<br>##### 2. Classificação Contábil",unsafe_allow_html=True)
+        cg2,cg3 = st.columns(2)
+        with cg2:
+            contas_orc = sorted(df_pc["ContaOrc"].unique().tolist())
+            conta_orc_sel = st.selectbox("Conta Orçamento *",[""] + contas_orc)
+        with cg3:
+            filtradas = df_pc[df_pc["ContaOrc"]==conta_orc_sel] if conta_orc_sel else pd.DataFrame()
+            opcoes_cont = sorted(filtradas["ContaCont"].unique().tolist())
+            conta_cont_sel = st.selectbox("Conta Contábil *",[""] + opcoes_cont)
+        frente_det = ""
+        if conta_orc_sel and conta_cont_sel:
+            match = df_pc[(df_pc["ContaOrc"]==conta_orc_sel) & (df_pc["ContaCont"]==conta_cont_sel)]
+            if not match.empty:
+                frente_det = match.iloc[0]["Frente"]
+                st.info(f"Frente detectada automaticamente: **{frente_det}**")
 
-        conta_cont = str(row.get("Desc. Conta Contábil","")).strip()
-        conta_orc  = str(row.get("Conta Orçamento","")).strip()
+        st.markdown("<br>##### 3. Valor e Datas Iniciais",unsafe_allow_html=True)
+        cv,cd1,cd2 = st.columns(3)
+        opcoes_mes_cad = [""] + db.gerar_opcoes_mes_ano()
+        with cv: ganho = st.number_input("Ganho Estimado 2026 (R$) *",min_value=0.0,step=100.0)
+        with cd1: dpn3 = st.selectbox("Data Prevista N3 (mm/aaaa)", opcoes_mes_cad)
+        with cd2: dpn4 = st.selectbox("Data Prevista N4 (mm/aaaa)", opcoes_mes_cad)
 
-        # verifica se a conta é reconhecida no plano de contas oficial
-        conta_reconhecida = norm(conta_cont) in lookup_cont or norm(conta_orc) in lookup_orc
+        if st.button("Salvar Registro (N1)",use_container_width=True,type="primary"):
+            if not (titulo.strip() and descricao.strip() and dono.strip() and cc_dono and conta_orc_sel and conta_cont_sel and filial_sel and grupo_contabil):
+                st.error("Preencha todos os campos obrigatórios (*).")
+            elif db.titulo_ja_existe(titulo):
+                st.error(f"Já existe uma oportunidade com o título '{titulo}'. Escolha outro.")
+            elif dpn3 and dpn4 and dpn4 < dpn3:
+                st.error("❌ A Data Prevista N4 não pode ser anterior à Data Prevista N3.")
+            else:
+                db.cadastrar_oportunidade({
+                    "titulo":titulo,"descricao":descricao,"grupo_contabil":grupo_contabil,
+                    "dono":dono,"cc_dono":cc_dono,"conta_orc":conta_orc_sel,
+                    "conta_cont":conta_cont_sel,
+                    "filial":filial_sel,"frente_automatica":frente_det,
+                    "ganho_2026":ganho,"data_prev_n3":dpn3,"data_prev_n4":dpn4,
+                    "area_craque": u.get("area_craque","")
+                }, u)
+                st.success("Oportunidade enviada para aprovação do Comitê (N1)!"); time.sleep(1.5); st.rerun()
 
-        frente_raw = (lookup_cont.get(norm(conta_cont),"") or
-                      lookup_orc.get(norm(conta_orc),"") or
-                      str(row.get("Frente de Negócio","")).strip())
-        frente = normalizar_frente(frente_raw)
+# ── SCO - OPORTUNIDADES ───────────────────────────────────────────────────────
+def pagina_sco():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color:#0f172a;">SCO - Oportunidades</h2>',unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: st.info("Nenhuma oportunidade cadastrada."); return
+    df["Nível"] = df["Nível"].astype(str).str.strip()
 
-        descricao = str(row.get("Descrição","")).strip()
-        if not descricao or descricao.lower() == "nan": descricao = titulo
+    # filtro por perfil
+    if u["perfil"] == "craque":
+        # craque vê ideias cuja "Area Craque" bate com a área dele
+        area_craque_user = str(u.get("area_craque","")).strip().lower()
+        if area_craque_user:
+            mask_area = df["Area Craque"].astype(str).str.strip().str.lower() == area_craque_user
+        else:
+            mask_area = pd.Series(False, index=df.index)
+        df = df[mask_area]
+    elif u["perfil"] == "lider":
+        df = df[df["Frente de Negócio"].str.lower() == u["frente"].lower()]
+    # adm e diretoria veem tudo
 
-        # lê meses absolutos pelo label jan/2026 → chave jan_2026
-        vals_abs = {}
-        for label, chave in label_para_chave.items():
-            try: vals_abs[chave] = float(str(row.get(label,"0")).replace(",",".") or "0")
-            except: vals_abs[chave] = 0.0
+    if df.empty: st.info("Nenhuma oportunidade encontrada para seu perfil."); return
 
-        # detecta Data N4 pelo primeiro mês absoluto com valor se vazia
-        data_n4 = str(row.get("Data Prevista N4","")).strip()
-        if not data_n4:
-            for chave in meses_abs:
-                if vals_abs.get(chave, 0) != 0:
-                    partes = chave.split("_")
-                    mes_idx = NOMES_MESES.index(partes[0]) + 1
-                    data_n4 = f"{mes_idx:02d}/{partes[1]}"
-                    break
+    # ── FILTROS ────────────────────────────────────────────────────────────────
+    st.markdown("##### Filtros")
+    def opt(col): return sorted(df[col].dropna().astype(str).unique().tolist()) if col in df.columns else []
 
-        nova = {
-            "ID": id_unico, "Título": titulo, "Descrição": descricao,
-            "Grupo Contábil": str(row.get("Grupo Contábil (ADM/COM/IND)","")).strip(),
-            "Dono da Oportunidade": str(row.get("Dono da Oportunidade","")).strip(),
-            "CC Dono": str(row.get("Centro de Custo do Dono da Oportunidade","")).strip(),
-            "Conta Orçamento": conta_orc, "Conta Contábil": conta_cont,
-            "Conta Reconhecida": conta_reconhecida,
-            "Frente de Negócio": frente,
-            "Filial": str(row.get("Filial","")).strip(),
-            "Nível": str(row.get("Status","N1 - Ideia")).strip() or "N1 - Ideia",
-            "Craque": u.get("nome","Importação"),
-            "Area Craque": str(row.get("Area Craque","")).strip(),
-            "Data Prevista N3": str(row.get("Data Prevista N3","")).strip(),
-            "Data Prevista N4": data_n4,
-            "Data Cadastro (N1)": datetime.now().strftime("%d/%m/%Y"),
-            "Data Realizada N1": datetime.now().strftime("%d/%m/%Y"),
-            "Data Realizada N2":"","Data Realizada N3":"","Data Realizada N4":"",
-            "Submetido Controladoria": False, "Comentário da Semana": "",
-        }
-        # salva meses absolutos — Total Estimado 2026 é calculado em ler_oportunidades()
-        nova.update(vals_abs)
-        db_fire.collection("oportunidades").document(id_unico).set(nova)
-        count += 1
-    registrar_log(u,"IMPORTAÇÃO EXCEL",f"{count} oportunidades importadas")
-    return count
+    col_f = st.columns(4)
+    with col_f[0]: f_status = st.multiselect("Status", opt("Nível"), default=[], key="f_status", placeholder="Todos")
+    with col_f[1]: f_frente = st.multiselect("Frente", opt("Frente de Negócio"), default=[], key="f_frente", placeholder="Todas")
+    with col_f[2]: f_gc     = st.multiselect("Grupo Contábil", ["ADM","COM","IND"], default=[], key="f_gc", placeholder="Todos")
+    with col_f[3]: f_regional = st.multiselect("Regional", db.ler_regionais(), default=[], key="f_regional", placeholder="Todas")
 
-# ── SNAPSHOTS SEMANAIS ────────────────────────────────────────────────────────
-def salvar_snapshot(df_oportunidades, usuario):
-    """Salva posição atual (frente x nível) como snapshot semanal."""
-    hoje = datetime.now().strftime("%d/%m/%Y")
-    semana = datetime.now().strftime("%Y-W%W")
-    frentes = ler_frentes()
-    niveis = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
-    df = df_oportunidades.copy()
-    df["Total Estimado 2026"] = pd.to_numeric(df["Total Estimado 2026"], errors="coerce").fillna(0.0)
+    col_f2 = st.columns(4)
+    with col_f2[0]: f_filial = st.multiselect("Filial", opt("Filial"), default=[], key="f_filial", placeholder="Todas")
+    with col_f2[1]: f_dono   = st.multiselect("Dono", opt("Dono da Oportunidade"), default=[], key="f_dono", placeholder="Todos")
+    with col_f2[2]: f_cc     = st.multiselect("CC Dono", opt("CC Dono"), default=[], key="f_cc", placeholder="Todos")
+    with col_f2[3]: f_area_craque = st.multiselect("Área Craque", opt("Area Craque"), default=[], key="f_area_craque", placeholder="Todas")
+
+    col_f3 = st.columns(2)
+    with col_f3[0]: f_conta  = st.multiselect("Conta Orç.", opt("Conta Orçamento"), default=[], key="f_conta", placeholder="Todas")
+    with col_f3[1]: pass  # espaço para futuros filtros
+
+    col_txt = st.columns(3)
+    with col_txt[0]: txt_tit  = st.text_input("🔍 Título", key="txt_tit")
+    with col_txt[1]: txt_desc = st.text_input("🔍 Descrição", key="txt_desc")
+    with col_txt[2]: txt_cc   = st.text_input("🔍 Conta Contábil", key="txt_cc")
+
+    chaves_filtros = ["f_status","f_frente","f_gc","f_regional","f_filial","f_dono","f_cc",
+                       "f_area_craque","f_conta","txt_tit","txt_desc","txt_cc"]
+    if st.button("🔄 Limpar Filtros", key="limpar"):
+        for k in chaves_filtros:
+            if k in st.session_state:
+                # reseta para o tipo correto: lista vazia para multiselect, "" para texto
+                if k.startswith("txt_"):
+                    st.session_state[k] = ""
+                else:
+                    st.session_state[k] = []
+        st.rerun()
+
+    df_f = df.copy()
+    if f_status:      df_f = df_f[df_f["Nível"].isin(f_status)]
+    if f_frente:      df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
+    if f_gc and "Grupo Contábil" in df_f.columns: df_f = df_f[df_f["Grupo Contábil"].isin(f_gc)]
+    if f_regional:
+        filiais_da_regional = set()
+        for reg in f_regional:
+            filiais_da_regional.update(db.filiais_por_regional(reg))
+        df_f = df_f[df_f["Filial"].isin(filiais_da_regional)]
+    if f_filial:      df_f = df_f[df_f["Filial"].isin(f_filial)]
+    if f_dono:        df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
+    if f_cc:          df_f = df_f[df_f["CC Dono"].isin(f_cc)]
+    if f_area_craque: df_f = df_f[df_f["Area Craque"].isin(f_area_craque)]
+    if f_conta:       df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
+    if txt_tit.strip():  df_f = df_f[df_f["Título"].astype(str).str.contains(txt_tit,case=False,na=False)]
+    if txt_desc.strip(): df_f = df_f[df_f.get("Descrição",pd.Series(dtype=str)).astype(str).str.contains(txt_desc,case=False,na=False)]
+    if txt_cc.strip():   df_f = df_f[df_f["Conta Contábil"].astype(str).str.contains(txt_cc,case=False,na=False)]
+
+    # sinaliza atrasadas — reset de índice para alinhar corretamente
+    df_f = df_f.reset_index(drop=True)
+    df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
+
+    # contagem e subtotal SEMPRE excluindo N0 - Cancelada
+    df_f_sem_n0 = df_f[df_f["Nível"].astype(str).str.strip() != "N0 - Cancelada"]
+    total_filtrado = pd.to_numeric(df_f_sem_n0["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
+    col_info, col_total = st.columns([3,1])
+    with col_info: st.markdown(f"**{len(df_f_sem_n0)} oportunidade(s) ativa(s)** *(de {len(df_f)} no filtro, excluindo N0)*")
+    with col_total: st.markdown(f"**Subtotal 2026: {brl_mil(total_filtrado)}**")
+
+    df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
+    atrasadas = df_f["_atrasada"].values
+
+    def highlight_atraso(row):
+        if atrasadas[row.name]:
+            return ["background-color: #fef9c3; color: #713f12;"] * len(row)
+        return [""] * len(row)
+
+    st.dataframe(
+        df_disp.style.apply(highlight_atraso, axis=1),
+        use_container_width=True,
+        hide_index=True
+    )
+
+    # botão exportar — todas as colunas do documento
+    excel_bytes = gerar_excel_sco(df_f)
+    st.download_button("📥 Exportar Excel", data=excel_bytes,
+        file_name=f"SCO_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+        mime="application/vnd.ms-excel")
+
+    # diretoria: só visualiza, sem ações
+    if u["perfil"] == "diretoria": return
+
+    # ── PAINEL DE AÇÕES ────────────────────────────────────────────────────────
+    if u["perfil"] in ("lider","adm"):
+        st.markdown("---")
+        st.markdown("##### Ações na Oportunidade")
+        opcoes = ["Selecione..."] + [str(r.get("Título",""))[:70] for _,r in df_f.iterrows()]
+        sel = st.selectbox("Selecione para editar",opcoes,key="sel_op")
+        if sel != "Selecione...":
+            matches = df_f[df_f["Título"].astype(str).str[:70]==sel.strip()]
+            if matches.empty: st.warning("Não encontrada."); return
+            row = matches.iloc[0]; id_sel = row["ID"]; nivel_atual = str(row["Nível"]).strip()
+
+            tab_c, tab_e, tab_n = st.tabs(["💬 Comentário","✏️ Editar Campos","🔄 Movimentar Nível"])
+
+            with tab_c:
+                hist = str(row.get("Comentário da Semana","")).strip()
+                if hist: st.markdown(f"**Histórico:**\n\n{hist}"); st.divider()
+                with st.form(f"fc_{id_sel}"):
+                    nc = st.text_area("Novo comentário:")
+                    if st.form_submit_button("💬 Salvar",type="primary"):
+                        if nc.strip(): db.adicionar_comentario(id_sel,nc,u); st.success("Salvo!"); st.rerun()
+                        else: st.warning("Digite algo.")
+
+
+            with tab_e:
+                df_pc = db.ler_plano_contas()
+                st.info("""ℹ️ **Guia de preenchimento:**
+- **Data N3** = mês previsto para início da execução.
+- **Data N4** = mês previsto para início da captura do ganho.
+- Ao selecionar Data N4, os campos de valor aparecem com os meses absolutos (tipo DATAM).
+- Ex: Data N4 = 08/2026 → campos ago/2026, set/2026, out/2026... até 12 meses ou dez/2028.""")
+
+                opcoes_mes = [""] + db.gerar_opcoes_mes_ano()
+
+                def normaliza_mes_ano(s):
+                    if not s: return ""
+                    partes = str(s).replace(" ","").split("/")
+                    if len(partes) == 3: return f"{partes[1]}/{partes[2][:4]}"
+                    if len(partes) == 2 and len(partes[0]) == 2: return s[:7]
+                    return ""
+
+                conta_orc_atual = str(row.get("Conta Orçamento","")).strip()
+                conta_cont_atual = str(row.get("Conta Contábil","")).strip()
+                conta_reconhecida = bool(row.get("Conta Reconhecida", True))
+                if not conta_orc_atual and not conta_cont_atual:
+                    conta_reconhecida = True  # ideia nova, sem conta ainda — não sinaliza
+
+                # verifica se a conta atual existe no plano de contas oficial
+                contas_orc_oficiais = sorted(df_pc["ContaOrc"].unique().tolist())
+                if conta_orc_atual not in contas_orc_oficiais:
+                    conta_reconhecida = False
+
+                if not conta_reconhecida:
+                    st.warning(f"⚠️ A conta importada ('{conta_orc_atual}' / '{conta_cont_atual}') não corresponde exatamente ao plano de contas oficial. Os valores atuais foram preservados — confira e corrija abaixo se necessário.")
+
+                with st.form(f"fe_{id_sel}"):
+                    nova_desc = st.text_area("Descrição", value=str(row.get("Descrição","")), max_chars=600)
+                    cg1, cg2 = st.columns(2)
+                    novo_gc = cg1.selectbox("Grupo Contábil", ["ADM","COM","IND"],
+                        index=["ADM","COM","IND"].index(row.get("Grupo Contábil","ADM")) if row.get("Grupo Contábil","ADM") in ["ADM","COM","IND"] else 0)
+                    nova_area_craque = cg2.text_input("Área Craque", value=str(row.get("Area Craque","")))
+
+                    ce1,ce2 = st.columns(2)
+                    with ce1:
+                        # mantém a conta orçamento atual como opção mesmo se não estiver no plano oficial
+                        opcoes_orc = contas_orc_oficiais.copy()
+                        if conta_orc_atual and conta_orc_atual not in opcoes_orc:
+                            opcoes_orc = [conta_orc_atual] + opcoes_orc
+                        idx_orc = opcoes_orc.index(conta_orc_atual) if conta_orc_atual in opcoes_orc else 0
+                        nova_orc = st.selectbox("Conta Orçamento", opcoes_orc, index=idx_orc)
+                    with ce2:
+                        filt = df_pc[df_pc["ContaOrc"]==nova_orc]
+                        # exibe só o texto da conta contábil, sem código
+                        opts_labels = sorted(filt["ContaCont"].unique().tolist())
+                        # mantém a conta contábil atual como opção mesmo se não bater
+                        if conta_cont_atual and conta_cont_atual not in opts_labels:
+                            opts_labels = [conta_cont_atual] + opts_labels
+                        if not opts_labels: opts_labels = [conta_cont_atual] if conta_cont_atual else [""]
+                        idx_cont = opts_labels.index(conta_cont_atual) if conta_cont_atual in opts_labels else 0
+                        nova_cont_label = st.selectbox("Conta Contábil", opts_labels, index=idx_cont)
+
+                    nova_frente = str(row.get("Frente de Negócio","")).strip()
+                    frente_detectada = ""
+                    match_conta = df_pc[(df_pc["ContaOrc"]==nova_orc) & (df_pc["ContaCont"]==nova_cont_label)]
+                    if not match_conta.empty:
+                        frente_detectada = match_conta.iloc[0]["Frente"]
+                        if frente_detectada and frente_detectada != nova_frente:
+                            st.info(f"A conta selecionada pertence à frente **{frente_detectada}** (atual: {nova_frente}). Ao salvar, a ideia será transferida.")
+                        elif frente_detectada:
+                            st.caption(f"Frente: **{frente_detectada}**")
+
+                    cd1e,cd2e = st.columns(2)
+                    n3_norm = normaliza_mes_ano(str(row.get("Data Prevista N3","")))
+                    n4_norm = normaliza_mes_ano(str(row.get("Data Prevista N4","")))
+                    idx_n3 = opcoes_mes.index(n3_norm) if n3_norm in opcoes_mes else 0
+                    idx_n4 = opcoes_mes.index(n4_norm) if n4_norm in opcoes_mes else 0
+                    nd3 = cd1e.selectbox("Data Prevista N3 (mm/aaaa)", opcoes_mes, index=idx_n3)
+                    nd4 = cd2e.selectbox("Data Prevista N4 (mm/aaaa)", opcoes_mes, index=idx_n4)
+
+                    vals_abs = {}
+                    if nd4:
+                        st.markdown("**Valores de economia por mês absoluto (a partir de N4):**")
+                        meses_form = []
+                        for i in range(12):
+                            prox = db.datam(nd4, i)
+                            if not prox or prox > "12/2028": break
+                            chave = db.mes_ano_para_chave(prox)
+                            if chave: meses_form.append((prox, chave))
+                        if meses_form:
+                            cols_abs = st.columns(min(6, len(meses_form)))
+                            for idx_m, (label_m, chave_m) in enumerate(meses_form):
+                                with cols_abs[idx_m % 6]:
+                                    v_atual = float(row.get(chave_m, 0) or 0)
+                                    vals_abs[chave_m] = st.number_input(
+                                        label_m, value=v_atual, step=100.0, key=f"{chave_m}_{id_sel}"
+                                    )
+                    else:
+                        st.info("Selecione a Data Prevista N4 para habilitar os campos de valor mensal.")
+
+                    submit = st.form_submit_button("✏️ Salvar Edições", type="primary")
+                    if submit:
+                        # valida N4 >= N3
+                        if nd3 and nd4 and nd4 < nd3:
+                            st.error("❌ A Data Prevista N4 não pode ser anterior à Data Prevista N3. Corrija antes de salvar.")
+                        else:
+                            campos = {
+                                "Descrição": nova_desc, "Grupo Contábil": novo_gc,
+                                "Area Craque": nova_area_craque,
+                                "Conta Orçamento": nova_orc,
+                                "Conta Contábil": nova_cont_label,
+                                "Conta Reconhecida": nova_orc in contas_orc_oficiais and not match_conta.empty,
+                                "Data Prevista N3": nd3, "Data Prevista N4": nd4,
+                            }
+                            if frente_detectada:
+                                campos["Frente de Negócio"] = frente_detectada
+                            campos.update(vals_abs)
+                            db.editar_campos_oportunidade(id_sel, campos, u)
+                            if frente_detectada and frente_detectada != nova_frente:
+                                st.success(f"Ideia transferida para a frente de {frente_detectada}!")
+                            else:
+                                st.success("Campos atualizados!")
+                            st.rerun()
+
+
+            with tab_n:
+                st.markdown(f"**Status atual:** `{nivel_atual}`")
+
+                if "N1" in nivel_atual:
+                    st.info("ℹ️ Em N1 — aprovação para N2 e cancelamento são feitos pelo Comitê de Despesas.")
+                    # só adm pode cancelar N1 aqui (líder não pode agir em N1)
+                    if u["perfil"] == "adm":
+                        st.markdown("---")
+                        if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n1_{id_sel}", use_container_width=True):
+                            db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+
+                elif "N2" in nivel_atual:
+                    dpn3 = str(row.get("Data Prevista N3","")).strip()
+                    dpn4 = str(row.get("Data Prevista N4","")).strip()
+                    meses_abs_check = db.gerar_colunas_meses_absolutos()
+                    vals_ok = any(float(row.get(m,0) or 0) > 0 for m in meses_abs_check)
+                    if not dpn3 or not dpn4 or not vals_ok:
+                        st.warning("⚠️ Para avançar para N3 preencha: Data Prevista N3, Data Prevista N4 e ao menos um valor mensal de economia na aba ✏️ Editar Campos.")
+                    else:
+                        if st.button("▶ Iniciar Execução (N2→N3)", key=f"n3_{id_sel}", use_container_width=True, type="primary"):
+                            db.movimentar_nivel(id_sel,"N3 - Execução",u); st.success("Movido para N3!"); st.rerun()
+                    st.markdown("---")
+                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n2_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+
+                elif "N3" in nivel_atual:
+                    sub = row.get("Submetido Controladoria",False)
+                    if not sub:
+                        if st.button("📋 Submeter para Controladoria (→N4)", key=f"sub_{id_sel}", type="primary", use_container_width=True):
+                            db.submeter_para_controladoria(id_sel,u); st.success("Enviado!"); st.rerun()
+                    else:
+                        st.warning("⏳ Aguardando validação da Controladoria.")
+                    st.markdown("---")
+                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n3_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+
+                elif "N4" in nivel_atual:
+                    st.success("✅ Implementada (N4).")
+                    st.markdown("---")
+                    if st.button("↩ Reabrir (N4→N3)", key=f"reabrir_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N3 - Execução",u); st.success("Reaberta para N3."); st.rerun()
+
+                elif "N0" in nivel_atual:
+                    st.error("Ideia cancelada (N0).")
+                    st.markdown("---")
+                    if st.button("↩ Reativar (N0→N1)", key=f"reativar_{id_sel}", use_container_width=True):
+                        db.movimentar_nivel(id_sel,"N1 - Ideia",u); st.success("Reativada para N1."); st.rerun()
+
+# ── COMITÊ (N1→N2) ────────────────────────────────────────────────────────────
+def pagina_comite():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color:#0f172a;">Comitê de Despesas (Aprovação N1)</h2>',unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: return
+    df["Nível"] = df["Nível"].astype(str).str.strip()
+    df_n1 = df[df["Nível"]=="N1 - Ideia"]
+    if df_n1.empty: st.success("Nenhuma ideia aguardando aprovação."); return
+
+    st.markdown(f"**{len(df_n1)} oportunidade(s) aguardando**")
+    st.dataframe(montar_tabela_sco(df_n1.copy()), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    opcoes = ["Selecione..."] + [str(r.get("Título",""))[:70] for _,r in df_n1.iterrows()]
+    sel = st.selectbox("Selecione para aprovar/rejeitar", opcoes, key="sel_comite")
+    if sel != "Selecione...":
+        matches = df_n1[df_n1["Título"].astype(str).str[:70]==sel.strip()]
+        if matches.empty: return
+        row = matches.iloc[0]; id_sel = row["ID"]
+        with st.container(border=True):
+            st.markdown(f"**{row.get('Título','')}** | {row.get('Craque','')} | {brl(row.get('Total Estimado 2026',0))}")
+            c1,c2 = st.columns(2)
+            with c1:
+                if st.button("✅ Aprovar (N1→N2)",key=f"apr_{id_sel}",use_container_width=True,type="primary"):
+                    db.movimentar_nivel(id_sel,"N2 - Planejamento",u); st.success("Aprovada!"); st.rerun()
+            with c2:
+                with st.form(f"form_rej_{id_sel}"):
+                    just = st.text_area("Justificativa para rejeição *")
+                    if st.form_submit_button("❌ Rejeitar (→N0)",use_container_width=True):
+                        if just.strip():
+                            db.movimentar_nivel(id_sel,"N0 - Cancelada",u,justificativa=just)
+                            st.success("Rejeitada."); st.rerun()
+                        else: st.error("Informe a justificativa para rejeitar.")
+
+# ── CONTROLADORIA (N3→N4) ─────────────────────────────────────────────────────
+def pagina_controladoria():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color:#0f172a;">Validação Controladoria (Aprovação N4)</h2>',unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: return
+    df["Nível"] = df["Nível"].astype(str).str.strip()
+    df_n3 = df[(df["Nível"]=="N3 - Execução")&(df["Submetido Controladoria"]==True)]
+    if df_n3.empty: st.success("Nenhuma ideia aguardando validação."); return
+
+    st.markdown(f"**{len(df_n3)} oportunidade(s) aguardando**")
+    st.dataframe(montar_tabela_sco(df_n3.copy()), use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+    opcoes = ["Selecione..."] + [str(r.get("Título",""))[:70] for _,r in df_n3.iterrows()]
+    sel = st.selectbox("Selecione para validar", opcoes, key="sel_ctrl")
+    if sel != "Selecione...":
+        matches = df_n3[df_n3["Título"].astype(str).str[:70]==sel.strip()]
+        if matches.empty: return
+        row = matches.iloc[0]; id_sel = row["ID"]
+        with st.container(border=True):
+            st.markdown(f"**{row.get('Título','')}** | {row.get('Frente de Negócio','')} | {brl(row.get('Total Estimado 2026',0))}")
+            if st.button("🏆 Validar Savings — Implementado (N4)",key=f"val_{id_sel}",type="primary",use_container_width=True):
+                db.movimentar_nivel(id_sel,"N4 - Implementado",u); st.success("Implementado!"); st.rerun()
+
+# ── PAINEL EXECUTIVO ──────────────────────────────────────────────────────────
+def pagina_painel_integrado():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color:#0f172a;">Painel Executivo</h2>',unsafe_allow_html=True)
+    df = db.ler_oportunidades()
+    if df.empty: st.info("Sem dados."); return
+
     df["Nível"] = df["Nível"].astype(str).str.strip()
     df["Frente de Negócio"] = df["Frente de Negócio"].astype(str).str.strip()
-    registros = []
-    for nivel in niveis:
-        for frente in frentes:
-            subset = df[(df["Nível"]==nivel) & (df["Frente de Negócio"]==frente)]
-            registros.append({
-                "nivel": nivel, "frente": frente,
-                "qtd": len(subset),
-                "valor": float(subset["Total Estimado 2026"].sum()),
-            })
-    db_fire.collection("snapshots").document(semana).set({
-        "semana": semana, "data": hoje,
-        "registrado_por": usuario.get("nome","?"),
-        "dados": registros
-    })
-    registrar_log(usuario, "SNAPSHOT", f"Snapshot semanal registrado: {semana}")
-    return semana
+    df["Total Estimado 2026"] = pd.to_numeric(df["Total Estimado 2026"],errors="coerce").fillna(0.0)
 
-def ler_snapshots() -> list:
-    """Retorna lista de snapshots ordenados do mais recente para o mais antigo."""
-    docs = db_fire.collection("snapshots").stream()
-    snaps = []
-    for doc in docs:
-        d = doc.to_dict()
-        d["id"] = doc.id
-        snaps.append(d)
-    return sorted(snaps, key=lambda x: x.get("semana",""), reverse=True)
+    # Filtros globais painel
+    frentes = db.ler_frentes()
+    niveis_opcoes = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
+    cf1,cf2 = st.columns(2)
+    with cf1: f_frente_p = st.multiselect("Filtrar por Frente",frentes,default=[],key="pf_frente",placeholder="Todas")
+    with cf2: f_nivel_p  = st.multiselect("Filtrar por Nível",niveis_opcoes,default=[],key="pf_nivel",placeholder="Todos")
 
-def importar_historico_snapshots(df_hist, usuario):
-    """Importa snapshots históricos de uma planilha. Colunas: semana, data, nivel, frente, qtd, valor"""
-    df_hist = df_hist.dropna(how="all").fillna("")
-    semanas = {}
-    for _, row in df_hist.iterrows():
-        semana = str(row.get("semana","")).strip()
-        if not semana or semana.lower()=="nan": continue
-        if semana not in semanas:
-            semanas[semana] = {"semana": semana, "data": str(row.get("data","")).strip(), "registrado_por": "Importação Histórica", "dados": []}
-        semanas[semana]["dados"].append({
-            "nivel":  str(row.get("nivel","")).strip(),
-            "frente": str(row.get("frente","")).strip(),
-            "qtd":    int(float(str(row.get("qtd",0)))),
-            "valor":  float(str(row.get("valor",0))),
-        })
-    for semana, doc in semanas.items():
-        db_fire.collection("snapshots").document(semana).set(doc)
-    registrar_log(usuario, "IMPORTAÇÃO HISTÓRICO", f"{len(semanas)} semanas importadas")
-    return len(semanas)
+    df_p = df.copy()
+    if u["perfil"]=="lider": df_p = df_p[df_p["Frente de Negócio"].str.lower()==u["frente"].lower()]
+    if f_frente_p: df_p = df_p[df_p["Frente de Negócio"].isin(f_frente_p)]
+    if f_nivel_p:  df_p = df_p[df_p["Nível"].isin(f_nivel_p)]
 
-def gerar_planilha_historico_padrao() -> bytes:
-    """Gera planilha padrão para importação de histórico de snapshots."""
-    colunas = ["semana","data","nivel","frente","qtd","valor"]
-    exemplo = [
-        {"semana":"2025-W10","data":"07/03/2025","nivel":"N1 - Ideia","frente":"Consumo","qtd":3,"valor":150000},
-        {"semana":"2025-W10","data":"07/03/2025","nivel":"N2 - Planejamento","frente":"Financeiro","qtd":2,"valor":200000},
-    ]
-    df_ex = pd.DataFrame(exemplo, columns=colunas)
-    buf = __import__("io").BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-        df_ex.to_excel(w, index=False, sheet_name="Histórico")
-        ws = w.sheets["Histórico"]
-        fmt = w.book.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff"})
-        for i, col in enumerate(colunas):
-            ws.write(0, i, col, fmt)
-            ws.set_column(i, i, max(len(col)+4, 18))
-    return buf.getvalue()
+    df_ativas = df_p[df_p["Nível"].astype(str).str.strip() != "N0 - Cancelada"]
+    orc_data = db.ler_orcamento()
+    total_orcado = sum(orc_data.get(f,0.0) for f in frentes)
 
-def gerar_planilha_oportunidades_padrao() -> bytes:
-    """Gera planilha padrão para importação de oportunidades com meses absolutos."""
-    meses_abs = gerar_colunas_meses_absolutos()  # jan_2026 ... dez_2028
-    colunas_base = [
-        "Título","Descrição","Grupo Contábil (ADM/COM/IND)",
-        "Conta Orçamento","Desc. Conta Contábil","Dono da Oportunidade",
-        "Centro de Custo do Dono da Oportunidade","Filial","Status",
-        "Area Craque","Total Estimado 2026",
-        "Data Prevista N3","Data Prevista N4",
-    ]
-    # labels de exibição: jan_2026 → jan/2026
-    todas_colunas = colunas_base + [chave_para_label(m) for m in meses_abs]
-    buf = __import__("io").BytesIO()
-    with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
-        pd.DataFrame(columns=todas_colunas).to_excel(w, index=False, sheet_name="Importação")
-        ws = w.sheets["Importação"]
-        fmt_azul    = w.book.add_format({"bold":True,"bg_color":"#0f172a","font_color":"#ffffff"})
-        fmt_laranja = w.book.add_format({"bold":True,"bg_color":"#f97316","font_color":"#ffffff"})
-        cols_laranja = {"Data Prevista N3","Data Prevista N4","Total Estimado 2026"} | set(chave_para_label(m) for m in meses_abs)
-        for i, col in enumerate(todas_colunas):
-            fmt = fmt_laranja if col in cols_laranja else fmt_azul
-            ws.write(0, i, col, fmt)
-            ws.set_column(i, i, max(len(col)+4, 16))
-    return buf.getvalue()
+    # Total 2026 real: soma apenas meses absolutos jan_2026..dez_2026
+    nomes_m = ["jan","fev","mar","abr","mai","jun","jul","ago","set","out","nov","dez"]
+    meses_2026 = [f"{m}_2026" for m in nomes_m]
+    def soma_2026(df_in):
+        total = 0.0
+        for m in meses_2026:
+            if m in df_in.columns:
+                total += pd.to_numeric(df_in[m], errors="coerce").fillna(0.0).sum()
+        return total
 
-# NÃO MEXER NO CÓDIGO QUE ESTÁ DANDO CERTO
+    potencial_2026 = soma_2026(df_ativas)
+    total_realizado = soma_2026(df_p[df_p["Nível"]=="N4 - Implementado"])
+
+    if u["perfil"] == "lider":
+        tab_dash, = st.tabs(["📊 Dashboard"])
+    else:
+        tab_dash, tab_matriz, tab_evo, tab_ger, tab_excel = st.tabs([
+            "📊 Dashboard", "📋 Matriz & Comparativo", "📈 Evolução", "📑 Rel. Gerencial", "📥 Base Excel"
+        ])
+
+    with tab_dash:
+        c1,c2,c3,c4,c5 = st.columns(5)
+        c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Ideias Ativas</div><div class="kpi-value">{len(df_ativas)}</div></div>',unsafe_allow_html=True)
+        c2.markdown(f'<div class="kpi-container"><div class="kpi-title">Potencial 2026</div><div class="kpi-value-green">{brl_mil(potencial_2026)}</div></div>',unsafe_allow_html=True)
+        c3.markdown(f'<div class="kpi-container"><div class="kpi-title">Implementadas (N4)</div><div class="kpi-value">{len(df_p[df_p["Nível"]=="N4 - Implementado"])}</div></div>',unsafe_allow_html=True)
+        c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_mil(total_orcado)}</div></div>',unsafe_allow_html=True)
+        c5.markdown(f'<div class="kpi-container"><div class="kpi-title">Realizado vs Orçado</div><div class="kpi-value">{(total_realizado/total_orcado*100) if total_orcado>0 else 0:.1f}%</div></div>',unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+        g1, g2 = st.columns(2)
+        with g1:
+            st.markdown("**Ideias por Nível**")
+            vc = df_p["Nível"].value_counts()
+            st.bar_chart(vc, color="#185FA5")
+            st.markdown("**Ideias por Frente**")
+            fi = df_ativas.groupby("Frente de Negócio").size()
+            st.bar_chart(fi, color="#16a34a")
+        with g2:
+            st.markdown("**Valores por Nível**")
+            vv = df_p.groupby("Nível")["Total Estimado 2026"].sum()
+            st.bar_chart(vv, color="#185FA5")
+            st.markdown("**Valores por Frente**")
+            fv = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
+            st.bar_chart(fv, color="#16a34a")
+
+    if u["perfil"] != "lider":
+        with tab_matriz:
+            niveis_ativos = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado"]
+            st.markdown("#### Posição Atual — Frentes × Níveis")
+            linhas = []
+            for frente in frentes:
+                linha = {"Frente": frente}
+                total_fr = 0.0; total_qtd = 0
+                for nivel in niveis_ativos:
+                    sub = df_p[(df_p["Frente de Negócio"]==frente) & (df_p["Nível"]==nivel)]
+                    qtd = len(sub); val = sub["Total Estimado 2026"].sum()
+                    nc = nivel.split(" - ")[0]
+                    linha[f"{nc} Qtd"] = qtd
+                    linha[f"{nc} R$"] = brl_k(val)
+                    linha[f"_{nc}_val"] = val
+                    total_fr += val; total_qtd += qtd
+                linha["Total Qtd"] = total_qtd
+                linha["Total R$"] = brl_k(total_fr)
+                linhas.append(linha)
+            total_row = {"Frente": "TOTAL"}
+            for nivel in niveis_ativos:
+                nc = nivel.split(" - ")[0]
+                sub = df_p[df_p["Nível"]==nivel]
+                total_row[f"{nc} Qtd"] = len(sub)
+                total_row[f"{nc} R$"] = brl_k(sub["Total Estimado 2026"].sum())
+                total_row[f"_{nc}_val"] = sub["Total Estimado 2026"].sum()
+            total_row["Total Qtd"] = len(df_p[df_p["Nível"].isin(niveis_ativos)])
+            total_row["Total R$"] = brl_k(df_p[df_p["Nível"].isin(niveis_ativos)]["Total Estimado 2026"].sum())
+            linhas.append(total_row)
+            cols_ex = ["Frente"] + [f"{n.split(' - ')[0]} Qtd" for n in niveis_ativos] +                   [f"{n.split(' - ')[0]} R$" for n in niveis_ativos] + ["Total Qtd","Total R$"]
+            df_matriz = pd.DataFrame(linhas)[cols_ex]
+            st.dataframe(df_matriz, use_container_width=True, hide_index=True)
+
+            st.markdown("---")
+            col_snap1, col_snap2 = st.columns([2,1])
+            with col_snap2:
+                if u["perfil"] == "adm":
+                    if st.button("📸 Registrar posição desta semana", type="primary", use_container_width=True):
+                        semana_id = db.salvar_snapshot(df_p, u)
+                        st.success(f"Snapshot registrado: {semana_id}"); st.rerun()
+
+            snaps = db.ler_snapshots()
+            if len(snaps) >= 2:
+                st.markdown("#### Comparativo com semana anterior")
+                snap_atual = snaps[0]; snap_ant = snaps[1]
+                st.caption(f"Comparando **{snap_atual['data']}** (atual) vs **{snap_ant['data']}** (anterior)")
+
+                def indexar(snap):
+                    idx = {}
+                    for r in snap.get("dados",[]):
+                        n = r["nivel"]; f = r["frente"]
+                        if n not in idx: idx[n] = {}
+                        idx[n][f] = {"qtd": r["qtd"], "valor": r["valor"]}
+                    return idx
+
+                atual_idx = indexar(snap_atual)
+                ant_idx   = indexar(snap_ant)
+                textos = []
+                for nivel in niveis_ativos:
+                    frentes_com_mudanca = []
+                    delta_total_val = 0.0; delta_total_qtd = 0
+                    for frente in frentes:
+                        v_at = atual_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
+                        v_an = ant_idx.get(nivel,{}).get(frente,{}).get("valor",0.0)
+                        q_at = atual_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
+                        q_an = ant_idx.get(nivel,{}).get(frente,{}).get("qtd",0)
+                        dv = v_at - v_an; dq = q_at - q_an
+                        if abs(dv) > 0.01 or dq != 0:
+                            sv = "+" if dv >= 0 else ""
+                            sq = "+" if dq >= 0 else ""
+                            det = f"{frente}: {sv}{brl_k(dv)}"
+                            if dq != 0: det += f" ({sq}{dq} ideia{'s' if abs(dq)!=1 else ''})"
+                            frentes_com_mudanca.append(det)
+                            delta_total_val += dv; delta_total_qtd += dq
+                    if frentes_com_mudanca:
+                        sv = "+" if delta_total_val >= 0 else ""
+                        sq = "+" if delta_total_qtd >= 0 else ""
+                        resumo = f"**{nivel}:** potencial {sv}{brl_k(delta_total_val)}"
+                        if delta_total_qtd != 0:
+                            resumo += f", {sq}{delta_total_qtd} ideia{'s' if abs(delta_total_qtd)!=1 else ''}"
+                        resumo += f". Por frente — " + "; ".join(frentes_com_mudanca) + "."
+                        textos.append(resumo)
+                if textos:
+                    for t in textos: st.markdown(f"- {t}")
+                else:
+                    st.info("Nenhuma variação entre os dois últimos snapshots.")
+            elif len(snaps) == 1:
+                st.info(f"Snapshot de {snaps[0]['data']} registrado. Registre mais um na próxima semana para ver o comparativo.")
+            else:
+                st.info("Nenhum snapshot registrado ainda. Clique em '📸 Registrar posição desta semana' para começar.")
+
+        with tab_evo:
+            df_ev = df_ativas.copy()
+            df_ev["Semana"] = df_ev["Data Cadastro (N1)"].apply(
+                lambda x: f"Sem.{x.split('/')[1]}/{x.split('/')[2]}" if pd.notna(x) and x and "/" in str(x) else "?")
+            evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
+            st.markdown("**Evolução por Semana de Cadastro**")
+            st.bar_chart(evo)
+        with tab_ger:
+            if u["perfil"]=="adm":
+                with st.expander("⚙️ Ajustar Metas Orçadas"):
+                    with st.form("form_orc"):
+                        cols_orc = st.columns(len(frentes))
+                        vals_orc = {f: cols_orc[i].number_input(f, value=float(orc_data.get(f,0.0)), step=10000.0) for i,f in enumerate(frentes)}
+                        if st.form_submit_button("Salvar", type="primary"):
+                            db.salvar_orcamento(vals_orc); st.success("Atualizado!"); time.sleep(1); st.rerun()
+
+            relatorio = []
+            for f in frentes:
+                df_f2 = df_p[df_p["Frente de Negócio"]==f]
+                n1 = soma_2026(df_f2[df_f2["Nível"]=="N1 - Ideia"])
+                n2 = soma_2026(df_f2[df_f2["Nível"]=="N2 - Planejamento"])
+                n3 = soma_2026(df_f2[df_f2["Nível"]=="N3 - Execução"])
+                n4 = soma_2026(df_f2[df_f2["Nível"]=="N4 - Implementado"])
+                total = n1+n2+n3+n4
+                orc = orc_data.get(f, 0.0)
+                relatorio.append({
+                    "Frente": f,
+                    "N1 - Ideia": brl_mil(n1),
+                    "N2 - Planejamento": brl_mil(n2),
+                    "N3 - Execução": brl_mil(n3),
+                    "N4 - Implementado": brl_mil(n4),
+                    "Total 2026": brl_mil(total),
+                    "Orçado": brl_mil(orc),
+                    "% Ating. (N4/Orç.)": f"{(n4/orc*100) if orc>0 else 0:.1f}%"
+                })
+            st.dataframe(pd.DataFrame(relatorio), use_container_width=True, hide_index=True)
+
+        with tab_excel:
+            for i in range(1,13):
+                if f"M{i}" not in df_p.columns: df_p[f"M{i}"] = 0.0
+                else: df_p[f"M{i}"] = pd.to_numeric(df_p[f"M{i}"], errors="coerce").fillna(0.0)
+            excel_p = gerar_excel_sco(df_p)
+            st.download_button("📥 Download Excel", data=excel_p,
+                file_name=f"Base_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.ms-excel", type="primary")
+
+
+# ── LOG ────────────────────────────────────────────────────────────────────────
+def pagina_log():
+    st.markdown('<h2 style="color:#0f172a;">Log de Alterações</h2>',unsafe_allow_html=True)
+    df_log = db.ler_logs()
+    if df_log.empty: st.info("Nenhuma alteração registrada."); return
+    cl1,cl2,cl3 = st.columns(3)
+    with cl1: f_tipo = st.selectbox("Tipo",["Todos"]+sorted(df_log["tipo_acao"].dropna().unique().tolist()),key="lt")
+    with cl2: f_user = st.selectbox("Usuário",["Todos"]+sorted(df_log["usuario"].dropna().unique().tolist()),key="lu")
+    with cl3: txt_log = st.text_input("🔍 Buscar",key="lb")
+    df_lf = df_log.copy()
+    if f_tipo!="Todos": df_lf = df_lf[df_lf["tipo_acao"]==f_tipo]
+    if f_user!="Todos": df_lf = df_lf[df_lf["usuario"]==f_user]
+    if txt_log.strip(): df_lf = df_lf[df_lf["descricao"].astype(str).str.contains(txt_log,case=False,na=False)]
+    cols = [c for c in ["data_hora","usuario","tipo_acao","descricao","id_oportunidade"] if c in df_lf.columns]
+    df_ld = df_lf[cols].rename(columns={"data_hora":"Data/Hora","usuario":"Usuário","tipo_acao":"Tipo","descricao":"Descrição","id_oportunidade":"ID Oport."})
+    st.markdown(f"**{len(df_ld)} registro(s)**")
+    st.dataframe(df_ld,use_container_width=True,hide_index=True)
+    buf = io.BytesIO()
+    with pd.ExcelWriter(buf,engine="xlsxwriter") as w: df_ld.to_excel(w,index=False,sheet_name="Log")
+    st.download_button("📥 Exportar Log",data=buf.getvalue(),
+        file_name=f"Log_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",mime="application/vnd.ms-excel")
+
+# ── PAINEL DE ACESSOS ─────────────────────────────────────────────────────────
+def pagina_admin():
+    u = st.session_state.usuario
+    st.markdown('<h2 style="color:#0f172a;">⚙️ Painel de Acessos</h2>',unsafe_allow_html=True)
+    tab_novo,tab_edit,tab_import,tab_hist = st.tabs([
+        "➕ Novo Usuário","✏️ Editar Usuários","📤 Importar Oportunidades","📅 Importar Histórico"
+    ])
+
+    with tab_novo:
+        with st.container(border=True):
+            c1,c2 = st.columns(2)
+            with c1:
+                login  = st.text_input("Login",key="nl")
+                email  = st.text_input("E-mail",key="ne")
+                nome   = st.text_input("Nome Completo",key="nn")
+                perfil = st.selectbox("Perfil",["craque","lider","adm","diretoria"],key="np")
+            with c2:
+                senha      = st.text_input("Senha *",type="password",key="ns")
+                frente     = st.selectbox("Frente",[""] + db.ler_frentes(),key="nfr")
+                filial     = st.selectbox("Filial",[""] + db.ler_filiais(),key="nfi")
+                area_craque = st.text_input("Área Craque (para perfil craque)",key="nac",
+                    help="Identifica a área de responsabilidade do craque. Ex: Controladoria, TI, Logística CD")
+            if st.button("Cadastrar Usuário",use_container_width=True,type="primary"):
+                if login.strip() and nome.strip() and senha.strip():
+                    db.cadastrar_usuario_manual(login,nome,perfil,email,filial,"",frente,senha,area_craque)
+                    db.registrar_log(u,"CADASTRO USUÁRIO",f"Novo: {login}")
+                    st.success(f"Usuário '{login}' criado!")
+                else: st.error("Preencha Login, Nome e Senha.")
+
+    with tab_edit:
+        df_us = db.ler_usuarios()
+        if not df_us.empty:
+            alvo = st.selectbox("Selecione o Usuário",[""] + df_us["login"].tolist())
+            if alvo:
+                d = df_us[df_us["login"]==alvo].iloc[0]
+                with st.form("form_ed"):
+                    c1,c2 = st.columns(2)
+                    en = c1.text_input("Nome",value=d.get("nome",""))
+                    ee = c1.text_input("E-mail",value=d.get("email",""))
+                    lp = ["craque","lider","adm","diretoria"]
+                    ep = c1.selectbox("Perfil",lp,index=lp.index(d.get("perfil","craque")) if d.get("perfil","craque") in lp else 0)
+                    eac = c1.text_input("Área Craque",value=d.get("area_craque",""))
+                    lf = [""]+db.ler_frentes()
+                    ef = c2.selectbox("Frente",lf,index=lf.index(d.get("frente","")) if d.get("frente","") in lf else 0)
+                    lfil = [""]+db.ler_filiais()
+                    efil = c2.selectbox("Filial",lfil,index=lfil.index(d.get("filial","")) if d.get("filial","") in lfil else 0)
+                    es = c2.text_input("Nova Senha (em branco = manter)",type="password")
+                    if st.form_submit_button("Salvar",type="primary"):
+                        db.atualizar_usuario_completo(alvo,en,ee,ep,ef,efil,es,u,eac)
+                        st.success("Atualizado!"); time.sleep(1); st.rerun()
+                st.markdown("<br>",unsafe_allow_html=True)
+                with st.container(border=True):
+                    st.markdown("#### ⚠️ Zona de Perigo")
+                    if st.button(f"🗑️ Excluir '{alvo}' definitivamente"):
+                        db.excluir_usuario(alvo,u); st.success("Excluído!"); time.sleep(1.5); st.rerun()
+        else: st.info("Nenhum usuário cadastrado.")
+
+    with tab_import:
+        st.markdown("**Passo 1:** Baixe a planilha padrão, preencha e reimporte.")
+        padrao = db.gerar_planilha_oportunidades_padrao()
+        st.download_button("📥 Baixar Planilha Padrão",data=padrao,
+            file_name="Modelo_Importacao_Essencia.xlsx",mime="application/vnd.ms-excel")
+        st.info("💡 Os meses absolutos (jan/2026, fev/2026...) são opcionais. Se a coluna 'Data Prevista N4' estiver vazia, o sistema detecta automaticamente pelo primeiro mês com valor.")
+        st.markdown("**Passo 2:** Importe o arquivo preenchido.")
+        arquivo = st.file_uploader("Selecione o arquivo (.xlsx)",type=["xlsx"])
+        if arquivo and st.button("🚀 Processar e Importar",type="primary"):
+            try:
+                df_imp = pd.read_excel(arquivo)
+                count = db.importar_base_excel(df_imp,u)
+                st.success(f"{count} oportunidade(s) importada(s) com sucesso!")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+
+    with tab_hist:
+        st.markdown("#### Importar Histórico de Snapshots Semanais")
+        st.markdown("Use esta aba para carregar posições de semanas anteriores ao sistema. Será feito 1 ou 2 vezes.")
+        st.markdown("**Passo 1:** Baixe o modelo, preencha com os dados históricos e reimporte.")
+        hist_padrao = db.gerar_planilha_historico_padrao()
+        st.download_button("📥 Baixar Modelo de Histórico", data=hist_padrao,
+            file_name="Modelo_Historico_Snapshots.xlsx", mime="application/vnd.ms-excel")
+        st.markdown("**Passo 2:** Importe o arquivo preenchido.")
+        arq_hist = st.file_uploader("Selecione o histórico (.xlsx)", type=["xlsx"], key="up_hist")
+        if arq_hist and st.button("🚀 Importar Histórico", type="primary", key="btn_hist"):
+            try:
+                df_h = pd.read_excel(arq_hist)
+                count_h = db.importar_historico_snapshots(df_h, u)
+                st.success(f"{count_h} semana(s) importada(s) com sucesso!")
+            except Exception as e:
+                st.error(f"Erro: {e}")
+
+        # lista snapshots existentes
+        snaps = db.ler_snapshots()
+        if snaps:
+            st.markdown("---")
+            st.markdown(f"**{len(snaps)} snapshot(s) registrado(s):**")
+            df_snaps = pd.DataFrame([{"Semana": s["semana"], "Data": s["data"], "Registrado por": s.get("registrado_por","")} for s in snaps])
+            st.dataframe(df_snaps, use_container_width=True, hide_index=True)
+
+def main():
+    if not st.session_state.usuario: tela_login()
+    else: painel_principal()
+
+if __name__=="__main__": main()
