@@ -366,7 +366,7 @@ def pagina_sco():
     with col_f2[0]: f_filial = st.multiselect("Filial", opt("Filial"), default=[], key="f_filial", placeholder="Todas")
     with col_f2[1]: f_dono   = st.multiselect("Dono", opt("Dono da Oportunidade"), default=[], key="f_dono", placeholder="Todos")
     with col_f2[2]: f_cc     = st.multiselect("CC Dono", opt("CC Dono"), default=[], key="f_cc", placeholder="Todos")
-    with col_f2[3]: f_craque = st.multiselect("Craque", opt("Craque"), default=[], key="f_craque", placeholder="Todos")
+    with col_f2[3]: f_area_craque = st.multiselect("Área Craque", opt("Area Craque"), default=[], key="f_area_craque", placeholder="Todas")
 
     col_f3 = st.columns(2)
     with col_f3[0]: f_conta  = st.multiselect("Conta Orç.", opt("Conta Orçamento"), default=[], key="f_conta", placeholder="Todas")
@@ -377,26 +377,32 @@ def pagina_sco():
     with col_txt[1]: txt_desc = st.text_input("🔍 Descrição", key="txt_desc")
     with col_txt[2]: txt_cc   = st.text_input("🔍 Conta Contábil", key="txt_cc")
 
+    chaves_filtros = ["f_status","f_frente","f_gc","f_regional","f_filial","f_dono","f_cc",
+                       "f_area_craque","f_conta","txt_tit","txt_desc","txt_cc"]
     if st.button("🔄 Limpar Filtros", key="limpar"):
-        for k in ["f_status","f_frente","f_gc","f_regional","f_filial","f_dono","f_cc","f_craque","f_conta","txt_tit","txt_desc","txt_cc"]:
-            if k in st.session_state: del st.session_state[k]
+        for k in chaves_filtros:
+            if k in st.session_state:
+                # reseta para o tipo correto: lista vazia para multiselect, "" para texto
+                if k.startswith("txt_"):
+                    st.session_state[k] = ""
+                else:
+                    st.session_state[k] = []
         st.rerun()
 
     df_f = df.copy()
-    if f_status:   df_f = df_f[df_f["Nível"].isin(f_status)]
-    if f_frente:   df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
+    if f_status:      df_f = df_f[df_f["Nível"].isin(f_status)]
+    if f_frente:      df_f = df_f[df_f["Frente de Negócio"].isin(f_frente)]
     if f_gc and "Grupo Contábil" in df_f.columns: df_f = df_f[df_f["Grupo Contábil"].isin(f_gc)]
     if f_regional:
-        # filtra filiais que pertencem às regionais selecionadas
         filiais_da_regional = set()
         for reg in f_regional:
             filiais_da_regional.update(db.filiais_por_regional(reg))
         df_f = df_f[df_f["Filial"].isin(filiais_da_regional)]
-    if f_filial:   df_f = df_f[df_f["Filial"].isin(f_filial)]
-    if f_dono:     df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
-    if f_cc:       df_f = df_f[df_f["CC Dono"].isin(f_cc)]
-    if f_craque:   df_f = df_f[df_f["Craque"].isin(f_craque)]
-    if f_conta:    df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
+    if f_filial:      df_f = df_f[df_f["Filial"].isin(f_filial)]
+    if f_dono:        df_f = df_f[df_f["Dono da Oportunidade"].isin(f_dono)]
+    if f_cc:          df_f = df_f[df_f["CC Dono"].isin(f_cc)]
+    if f_area_craque: df_f = df_f[df_f["Area Craque"].isin(f_area_craque)]
+    if f_conta:       df_f = df_f[df_f["Conta Orçamento"].isin(f_conta)]
     if txt_tit.strip():  df_f = df_f[df_f["Título"].astype(str).str.contains(txt_tit,case=False,na=False)]
     if txt_desc.strip(): df_f = df_f[df_f.get("Descrição",pd.Series(dtype=str)).astype(str).str.contains(txt_desc,case=False,na=False)]
     if txt_cc.strip():   df_f = df_f[df_f["Conta Contábil"].astype(str).str.contains(txt_cc,case=False,na=False)]
@@ -405,12 +411,12 @@ def pagina_sco():
     df_f = df_f.reset_index(drop=True)
     df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
 
-    # subtotal considerando filtros — exclui N0 Cancelada
-    df_subtotal = df_f[df_f["Nível"] != "N0 - Cancelada"]
-    total_filtrado = pd.to_numeric(df_subtotal["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
+    # contagem e subtotal SEMPRE excluindo N0 - Cancelada
+    df_f_sem_n0 = df_f[df_f["Nível"].astype(str).str.strip() != "N0 - Cancelada"]
+    total_filtrado = pd.to_numeric(df_f_sem_n0["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
     col_info, col_total = st.columns([3,1])
-    with col_info: st.markdown(f"**{len(df_f)} oportunidade(s) filtrada(s)**")
-    with col_total: st.markdown(f"**Subtotal 2026: {brl_mil(total_filtrado)}** *(exclui N0)*")
+    with col_info: st.markdown(f"**{len(df_f_sem_n0)} oportunidade(s) ativa(s)** *(de {len(df_f)} no filtro, excluindo N0)*")
+    with col_total: st.markdown(f"**Subtotal 2026: {brl_mil(total_filtrado)}**")
 
     df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
     atrasadas = df_f["_atrasada"].values
@@ -709,7 +715,7 @@ def pagina_painel_integrado():
     if f_frente_p: df_p = df_p[df_p["Frente de Negócio"].isin(f_frente_p)]
     if f_nivel_p:  df_p = df_p[df_p["Nível"].isin(f_nivel_p)]
 
-    df_ativas = df_p[df_p["Nível"]!="N0 - Cancelada"]
+    df_ativas = df_p[df_p["Nível"].astype(str).str.strip() != "N0 - Cancelada"]
     orc_data = db.ler_orcamento()
     total_orcado = sum(orc_data.get(f,0.0) for f in frentes)
 
