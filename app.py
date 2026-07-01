@@ -659,7 +659,7 @@ def pagina_sco():
                     st.error("Ideia cancelada (N0).")
                     st.markdown("---")
                     if st.button("↩ Reativar (N0→N1)", key=f"reativar_{id_sel}", use_container_width=True):
-                        db.movimentar_nivel(id_sel,"N1 - Ideia",u); st.success("Reativada para N1."); st.rerun()
+                        db.movimentar_nivel(id_sel,"N1 - Identificação",u); st.success("Reativada para N1."); st.rerun()
 
 # ── COMITÊ (N1→N2) ────────────────────────────────────────────────────────────
 def pagina_comite():
@@ -668,7 +668,7 @@ def pagina_comite():
     df = db.ler_oportunidades()
     if df.empty: return
     df["Nível"] = df["Nível"].astype(str).str.strip()
-    df_n1 = df[df["Nível"]=="N1 - Ideia"]
+    df_n1 = df[df["Nível"]=="N1 - Identificação"]
     if df_n1.empty: st.success("Nenhuma ideia aguardando aprovação."); return
 
     st.markdown(f"**{len(df_n1)} oportunidade(s) aguardando**")
@@ -734,7 +734,7 @@ def pagina_painel_integrado():
 
     # Filtros globais painel
     frentes = db.ler_frentes()
-    niveis_opcoes = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
+    niveis_opcoes = ["N1 - Identificação","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
     cf1,cf2 = st.columns(2)
     with cf1: f_frente_p = st.multiselect("Filtrar por Frente",frentes,default=[],key="pf_frente",placeholder="Todas")
     with cf2: f_nivel_p  = st.multiselect("Filtrar por Nível",niveis_opcoes,default=[],key="pf_nivel",placeholder="Todos")
@@ -794,7 +794,7 @@ def pagina_painel_integrado():
 
     if u["perfil"] != "lider":
         with tab_matriz:
-            niveis_ativos = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado"]
+            niveis_ativos = ["N1 - Identificação","N2 - Planejamento","N3 - Execução","N4 - Implementado"]
             st.markdown("#### Posição Atual — Frentes × Níveis")
             linhas = []
             for frente in frentes:
@@ -902,7 +902,7 @@ def pagina_painel_integrado():
             relatorio = []
             for f in frentes:
                 df_f2 = df_p[df_p["Frente de Negócio"]==f]
-                n1 = soma_2026(df_f2[df_f2["Nível"]=="N1 - Ideia"])
+                n1 = soma_2026(df_f2[df_f2["Nível"]=="N1 - Identificação"])
                 n2 = soma_2026(df_f2[df_f2["Nível"]=="N2 - Planejamento"])
                 n3 = soma_2026(df_f2[df_f2["Nível"]=="N3 - Execução"])
                 n4 = soma_2026(df_f2[df_f2["Nível"]=="N4 - Implementado"])
@@ -910,7 +910,7 @@ def pagina_painel_integrado():
                 orc = orc_data.get(f, 0.0)
                 relatorio.append({
                     "Frente": f,
-                    "N1 - Ideia": brl_mil(n1),
+                    "N1 - Identificação": brl_mil(n1),
                     "N2 - Planejamento": brl_mil(n2),
                     "N3 - Execução": brl_mil(n3),
                     "N4 - Implementado": brl_mil(n4),
