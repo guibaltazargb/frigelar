@@ -758,7 +758,7 @@ def pagina_painel_integrado():
                 total += pd.to_numeric(df_in[m], errors="coerce").fillna(0.0).sum()
         return total
 
-    potencial_2026 = soma_2026(df_ativas)
+    potencial_2026 = soma_2026(df)
     total_realizado = soma_2026(df_p[df_p["Nível"]=="N4 - Implementado"])
 
     if u["perfil"] == "lider":
@@ -770,7 +770,7 @@ def pagina_painel_integrado():
 
     with tab_dash:
         c1,c2,c3,c4,c5 = st.columns(5)
-        c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Total de Oportunidades</div><div class="kpi-value">{len(df_ativas)}</div></div>',unsafe_allow_html=True)
+        c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Total de Oportunidades</div><div class="kpi-value">{len(df)}</div></div>',unsafe_allow_html=True)
         c2.markdown(f'<div class="kpi-container"><div class="kpi-title">Potencial 2026</div><div class="kpi-value-green">{brl_mil(potencial_2026)}</div></div>',unsafe_allow_html=True)
         c3.markdown(f'<div class="kpi-container"><div class="kpi-title">Implementadas (N4)</div><div class="kpi-value">{len(df_p[df_p["Nível"]=="N4 - Implementado"])}</div></div>',unsafe_allow_html=True)
         c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_mil(total_orcado)}</div></div>',unsafe_allow_html=True)
@@ -782,14 +782,14 @@ def pagina_painel_integrado():
             vc = df_p["Nível"].value_counts()
             st.bar_chart(vc, color="#185FA5")
             st.markdown("**Ideias por Frente**")
-            fi = df_ativas.groupby("Frente de Negócio").size()
+            fi = df.groupby("Frente de Negócio").size()
             st.bar_chart(fi, color="#16a34a")
         with g2:
             st.markdown("**Valores por Nível**")
             vv = df_p.groupby("Nível")["Total Estimado 2026"].sum()
             st.bar_chart(vv, color="#185FA5")
             st.markdown("**Valores por Frente**")
-            fv = df_ativas.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
+            fv = df.groupby("Frente de Negócio")["Total Estimado 2026"].sum()
             st.bar_chart(fv, color="#16a34a")
 
     if u["perfil"] != "lider":
@@ -884,7 +884,7 @@ def pagina_painel_integrado():
                 st.info("Nenhum snapshot registrado ainda. Clique em '📸 Registrar posição desta semana' para começar.")
 
         with tab_evo:
-            df_ev = df_ativas.copy()
+            df_ev = df.copy()
             df_ev["Semana"] = df_ev["Data Cadastro (N1)"].apply(
                 lambda x: f"Sem.{x.split('/')[1]}/{x.split('/')[2]}" if pd.notna(x) and x and "/" in str(x) else "?")
             evo = df_ev.groupby(["Semana","Nível"])["Total Estimado 2026"].sum().unstack().fillna(0)
