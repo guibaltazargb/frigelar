@@ -13,7 +13,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 db_fire = firestore.client()
-NIVEIS = ["N1 - Ideia", "N2 - Planejamento", "N3 - Execução", "N4 - Implementado", "N0 - Cancelada"]
+NIVEIS = ["N1 - Identificação", "N2 - Planejamento", "N3 - Execução", "N4 - Implementado", "N0 - Cancelada"]
 
 # ── INICIALIZAÇÃO ──────────────────────────────────────────────────────────────
 def inicializar_banco_se_vazio():
@@ -619,7 +619,7 @@ def ler_oportunidades() -> pd.DataFrame:
 def cadastrar_oportunidade(dados, usuario):
     hoje = datetime.now().strftime("%d/%m/%Y")
     nova = {
-        "Nível": "N1 - Ideia",
+        "Nível": "N1 - Identificação",
         "Título": dados.get("titulo",""),
         "Descrição": dados.get("descricao",""),
         "Grupo Contábil": dados.get("grupo_contabil",""),
@@ -844,7 +844,7 @@ def importar_base_excel(df, u):
             "Conta Reconhecida": conta_reconhecida,
             "Frente de Negócio": frente,
             "Filial": str(row.get("Filial","")).strip(),
-            "Nível": str(row.get("Status","N1 - Ideia")).strip() or "N1 - Ideia",
+            "Nível": str(row.get("Status","N1 - Identificação")).strip() or "N1 - Identificação",
             "Craque": u.get("nome","Importação"),
             "Area Craque": str(row.get("Area Craque","")).strip(),
             "Data Prevista N3": str(row.get("Data Prevista N3","")).strip(),
@@ -867,7 +867,7 @@ def salvar_snapshot(df_oportunidades, usuario):
     hoje = datetime.now().strftime("%d/%m/%Y")
     semana = datetime.now().strftime("%Y-W%W")
     frentes = ler_frentes()
-    niveis = ["N1 - Ideia","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
+    niveis = ["N1 - Identificação","N2 - Planejamento","N3 - Execução","N4 - Implementado","N0 - Cancelada"]
     df = df_oportunidades.copy()
     df["Total Estimado 2026"] = pd.to_numeric(df["Total Estimado 2026"], errors="coerce").fillna(0.0)
     df["Nível"] = df["Nível"].astype(str).str.strip()
@@ -923,7 +923,7 @@ def gerar_planilha_historico_padrao() -> bytes:
     """Gera planilha padrão para importação de histórico de snapshots."""
     colunas = ["semana","data","nivel","frente","qtd","valor"]
     exemplo = [
-        {"semana":"2025-W10","data":"07/03/2025","nivel":"N1 - Ideia","frente":"Consumo","qtd":3,"valor":150000},
+        {"semana":"2025-W10","data":"07/03/2025","nivel":"N1 - Identificação","frente":"Consumo","qtd":3,"valor":150000},
         {"semana":"2025-W10","data":"07/03/2025","nivel":"N2 - Planejamento","frente":"Financeiro","qtd":2,"valor":200000},
     ]
     df_ex = pd.DataFrame(exemplo, columns=colunas)
