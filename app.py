@@ -71,18 +71,18 @@ else:
 if "usuario" not in st.session_state: st.session_state.usuario = None
 
 def brl(v):
-    try: return f"R$ {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
-    except: return "R$ 0,00"
+    try: return f" {float(v):,.2f}".replace(",","X").replace(".",",").replace("X",".")
+    except: return "0,00"
 
 def brl_k(v):
     """Mantido por compatibilidade — agora formata igual brl_mil."""
-    try: return f"R$ {float(v):,.0f}".replace(",",".")
-    except: return "R$ 0"
+    try: return f" {float(v):,.0f}".replace(",",".")
+    except: return "0"
 
 def brl_mil(v):
-    """Formata número como R$ 1.000.000 — sem k, sem casas decimais."""
-    try: return f"R$ {float(v):,.0f}".replace(",",".")
-    except: return "R$ 0"
+    """Formata número como 1.000.000 — sem k, sem casas decimais."""
+    try: return f" {float(v):,.0f}".replace(",",".")
+    except: return "0"
 
 def esta_atrasada(row):
     hoje = datetime.now().date()
@@ -176,7 +176,7 @@ def montar_tabela_sco(df_in):
     })
     for col in ["1°TRI 26","2°TRI 26","3°TRI 26","4°TRI 26","Total 2026"]:
         if col in df_d.columns:
-            df_d[col] = df_d[col].apply(lambda v: brl_k(v) if v != "" else "R$ 0")
+            df_d[col] = df_d[col].apply(lambda v: brl_k(v) if v != "" else "0")
     return df_d
 
 def gerar_excel_sco(df_in) -> bytes:
@@ -294,9 +294,16 @@ def pagina_cadastro():
             contas_orc = sorted(df_pc["ContaOrc"].unique().tolist())
             conta_orc_sel = st.selectbox("Conta Orçamento *",[""] + contas_orc)
         with cg3:
-            filtradas = df_pc[df_pc["ContaOrc"]==conta_orc_sel] if conta_orc_sel else pd.DataFrame()
-            opcoes_cont = sorted(filtradas["ContaCont"].unique().tolist())
-            conta_cont_sel = st.selectbox("Conta Contábil *",[""] + opcoes_cont)
+            if conta_orc_sel:
+                filtradas = df_pc[df_pc["ContaOrc"] == conta_orc_sel]
+                opcoes_cont = sorted(filtradas["ContaCont"].dropna().unique().tolist())
+            else:
+                opcoes_cont = []
+
+            conta_cont_sel = st.selectbox(
+                "Conta Contábil *",
+                [""] + opcoes_cont
+            )
         frente_det = ""
         if conta_orc_sel and conta_cont_sel:
             match = df_pc[(df_pc["ContaOrc"]==conta_orc_sel) & (df_pc["ContaCont"]==conta_cont_sel)]
@@ -381,12 +388,7 @@ def pagina_sco():
                        "f_area_craque","f_conta","txt_tit","txt_desc","txt_cc"]
     if st.button("🔄 Limpar Filtros", key="limpar"):
         for k in chaves_filtros:
-            if k in st.session_state:
-                # reseta para o tipo correto: lista vazia para multiselect, "" para texto
-                if k.startswith("txt_"):
-                    st.session_state[k] = ""
-                else:
-                    st.session_state[k] = []
+            st.session_state.pop(k, None)
         st.rerun()
 
     df_f = df.copy()
@@ -412,10 +414,12 @@ def pagina_sco():
     df_f["_atrasada"] = df_f.apply(esta_atrasada, axis=1)
 
     # contagem e subtotal SEMPRE excluindo N0 - Cancelada
-    df_f_sem_n0 = df_f[df_f["Nível"].astype(str).str.strip() != "N0 - Cancelada"]
-    total_filtrado = pd.to_numeric(df_f_sem_n0["Total Estimado 2026"], errors="coerce").fillna(0.0).sum()
+    total_filtrado = pd.to_numeric(
+        df_f["Total Estimado 2026"],
+        errors="coerce"
+    ).fillna(0).sum()
     col_info, col_total = st.columns([3,1])
-    with col_info: st.markdown(f"**{len(df_f_sem_n0)} oportunidade(s) ativa(s)** *(de {len(df_f)} no filtro, excluindo N0)*")
+    with col_info: st.markdown(f"**{len(df_f)} oportunidade(s)**")
     with col_total: st.markdown(f"**Subtotal 2026: {brl_mil(total_filtrado)}**")
 
     df_disp = montar_tabela_sco(df_f).reset_index(drop=True)
@@ -610,15 +614,40 @@ def pagina_sco():
                         db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
 
                 elif "N3" in nivel_atual:
-                    sub = row.get("Submetido Controladoria",False)
+                    sub = row.get("Submetido Controladoria", False)
+                
                     if not sub:
-                        if st.button("📋 Submeter para Controladoria (→N4)", key=f"sub_{id_sel}", type="primary", use_container_width=True):
-                            db.submeter_para_controladoria(id_sel,u); st.success("Enviado!"); st.rerun()
+                        if st.button(
+                            "📋 Submeter para Controladoria (→N4)",
+                            key=f"sub_{id_sel}",
+                            type="primary",
+                            use_container_width=True
+                        ):
+                            db.submeter_para_controladoria(id_sel, u)
+                            st.success("Enviado!")
+                            st.rerun()
                     else:
                         st.warning("⏳ Aguardando validação da Controladoria.")
+                
                     st.markdown("---")
-                    if st.button("✖ Cancelar esta ideia (→N0)", key=f"n0n3_{id_sel}", use_container_width=True):
-                        db.movimentar_nivel(id_sel,"N0 - Cancelada",u); st.success("Cancelada."); st.rerun()
+                
+                    if st.button(
+                        "↩ Retornar para Planejamento (N3→N2)",
+                        key=f"volta_n2_{id_sel}",
+                        use_container_width=True
+                    ):
+                        db.movimentar_nivel(id_sel, "N2 - Planejamento", u)
+                        st.success("Retornada para N2.")
+                        st.rerun()
+                
+                    if st.button(
+                        "✖ Cancelar esta ideia (→N0)",
+                        key=f"n0n3_{id_sel}",
+                        use_container_width=True
+                    ):
+                        db.movimentar_nivel(id_sel, "N0 - Cancelada", u)
+                        st.success("Cancelada.")
+                        st.rerun()
 
                 elif "N4" in nivel_atual:
                     st.success("✅ Implementada (N4).")
@@ -715,7 +744,7 @@ def pagina_painel_integrado():
     if f_frente_p: df_p = df_p[df_p["Frente de Negócio"].isin(f_frente_p)]
     if f_nivel_p:  df_p = df_p[df_p["Nível"].isin(f_nivel_p)]
 
-    df_ativas = df_p[df_p["Nível"].astype(str).str.strip() != "N0 - Cancelada"]
+    
     orc_data = db.ler_orcamento()
     total_orcado = sum(orc_data.get(f,0.0) for f in frentes)
 
@@ -741,7 +770,7 @@ def pagina_painel_integrado():
 
     with tab_dash:
         c1,c2,c3,c4,c5 = st.columns(5)
-        c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Ideias Ativas</div><div class="kpi-value">{len(df_ativas)}</div></div>',unsafe_allow_html=True)
+        c1.markdown(f'<div class="kpi-container"><div class="kpi-title">Total de Oportunidades</div><div class="kpi-value">{len(df_ativas)}</div></div>',unsafe_allow_html=True)
         c2.markdown(f'<div class="kpi-container"><div class="kpi-title">Potencial 2026</div><div class="kpi-value-green">{brl_mil(potencial_2026)}</div></div>',unsafe_allow_html=True)
         c3.markdown(f'<div class="kpi-container"><div class="kpi-title">Implementadas (N4)</div><div class="kpi-value">{len(df_p[df_p["Nível"]=="N4 - Implementado"])}</div></div>',unsafe_allow_html=True)
         c4.markdown(f'<div class="kpi-container"><div class="kpi-title">Total Orçado</div><div class="kpi-value-orange">{brl_mil(total_orcado)}</div></div>',unsafe_allow_html=True)
